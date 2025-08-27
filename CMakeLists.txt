@@ -29,6 +29,7 @@ FetchContent_MakeAvailable(nlohmann_json)
 # Find the Boost library, specifically for Asio's dependencies
 find_package(Boost 1.74.0 REQUIRED COMPONENTS system thread)
 find_package(CUDAToolkit REQUIRED)
+find_package(Threads REQUIRED)
 # ------------------------------------
 
 # --- Release Mode Optimizations ---
@@ -63,6 +64,7 @@ target_link_libraries(qtcminer PRIVATE
     nlohmann_json::nlohmann_json # JSON library
     Boost::system         # Boost dependencies
     Boost::thread         # Boost dependencies
+    Threads::Threads      # Thread support
 )
 
 # Message for the user after configuration

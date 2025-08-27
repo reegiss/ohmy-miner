@@ -1,11 +1,22 @@
 #include <iostream>
 #include <string>
-#include <vector>
+#include <thread>
+#include <atomic>
+#include <csignal>
 
-#include <cuda_runtime.h>
 #include "cxxopts.hpp"
-#include "cuda_kernels.cuh"
 #include "pool_connection.h"
+#include "thread_safe_queue.h"
+#include "mining_job.h"
+
+// Global atomic flag to signal that the program should shut down.
+std::atomic<bool> g_shutdown(false);
+
+// Signal handler for Ctrl+C (SIGINT).
+void signal_handler(int signal) {
+    std::cout << "\nCaught signal " << signal << ". Shutting down gracefully..." << std::endl;
+    g_shutdown = true;
+}
 
 // A struct to hold all our configuration settings
 struct Config {
@@ -16,7 +27,8 @@ struct Config {
     std::string user;
     std::string pass;
 };
-// ... (cole a função parse_url aqui)
+
+// Function to parse the URL into host and port
 bool parse_url(const std::string& url, std::string& host, uint16_t& port) {
     size_t colon_pos = url.find_last_of(':');
     if (colon_pos == std::string::npos) {
@@ -38,19 +50,41 @@ bool parse_url(const std::string& url, std::string& host, uint16_t& port) {
     return true;
 }
 
+// The function for the miner thread, now with shutdown logic
+void miner_thread_func(ThreadSafeQueue<MiningJob>& job_queue) {
+    std::cout << "[MINER] Miner thread started. Waiting for jobs..." << std::endl;
+    
+    while (!g_shutdown) {
+        MiningJob job;
+        // wait_and_pop now returns false if the queue was shut down
+        if (job_queue.wait_and_pop(job)) {
+            std::cout << "[MINER] Received new job with ID: " << job.job_id << std::endl;
+            if (job.clean_jobs) {
+                std::cout << "[MINER] Clearing previous jobs." << std::endl;
+            }
+            // Logic to call the CUDA kernel to mine this job will go here
+        } else {
+            // The queue was shut down, so we exit the loop
+            break;
+        }
+    }
+    std::cout << "[MINER] Miner thread shutting down." << std::endl;
+}
 
 int main(int argc, char* argv[]) {
-    // (A lógica de parsing do cxxopts permanece a mesma)
-    cxxopts::Options options("QtcMiner", "A high-performance CUDA miner");
-    options.add_options()
-        ("a,algo", "Hashing algorithm", cxxopts::value<std::string>())
-        ("o,url", "Pool URL with port (e.g., host:port)", cxxopts::value<std::string>())
-        ("u,user", "Username or wallet address for the pool", cxxopts::value<std::string>())
-        ("p,pass", "Password for the pool", cxxopts::value<std::string>()->default_value("x"))
-        ("h,help", "Print usage");
+    std::signal(SIGINT, signal_handler);
 
+    // Bloco de parsing do cxxopts (permanece o mesmo)
     Config config;
     try {
+        cxxopts::Options options("QtcMiner", "A high-performance CUDA miner");
+        options.add_options()
+            ("a,algo", "Hashing algorithm", cxxopts::value<std::string>())
+            ("o,url", "Pool URL with port (e.g., host:port)", cxxopts::value<std::string>())
+            ("u,user", "Username or wallet address for the pool", cxxopts::value<std::string>())
+            ("p,pass", "Password for the pool", cxxopts::value<std::string>()->default_value("x"))
+            ("h,help", "Print usage");
+        
         auto result = options.parse(argc, argv);
         if (result.count("help")) {
             std::cout << options.help() << std::endl;
@@ -72,23 +106,33 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    std::cout << "Configuration loaded. Initializing miner...\n";
+    std::cout << "Configuration loaded. Initializing miner..." << std::endl;
+    std::cout << "Press Ctrl+C to exit gracefully." << std::endl;
 
-    PoolConnection pool(config.host, config.port);
+    ThreadSafeQueue<MiningJob> job_queue;
+    PoolConnection pool(config.host, config.port, job_queue);
+    
+    std::thread network_thread(&PoolConnection::run, &pool, config.user, config.pass);
+    std::thread miner_thread(miner_thread_func, std::ref(job_queue));
 
-    // Tenta conectar e depois fazer o handshake
-    if (pool.connect()) {
-        if (pool.handshake(config.user, config.pass)) {
-            std::cout << "Handshake complete. Ready to receive mining jobs..." << std::endl;
-            // O loop principal da mineração começará aqui no futuro.
-        } else {
-            std::cerr << "Failed to complete Stratum handshake. Exiting." << std::endl;
-            return 1;
-        }
-    } else {
-        std::cerr << "Failed to connect to the pool. Exiting." << std::endl;
-        return 1;
+    // A thread principal espera ativamente pelo sinal de desligamento
+    while (!g_shutdown) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
+
+    // --- SEQUÊNCIA DE DESLIGAMENTO CORRETA ---
+    std::cout << "[MAIN] Shutdown signal received. Closing connections..." << std::endl;
+
+    // 1. SINALIZAR: Desbloqueia todas as threads que estiverem esperando.
+    pool.close();
+    job_queue.shutdown();
+
+    // 2. ESPERAR: Agora que as threads foram desbloqueadas, esperamos por elas.
+    network_thread.join();
+    miner_thread.join();
+    // ----------------------------------------
+
+    std::cout << "[MAIN] All threads have been joined. Exiting." << std::endl;
 
     return 0;
 }

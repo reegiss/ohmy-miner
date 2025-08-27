@@ -4,39 +4,36 @@
 #include <string>
 #include <boost/asio.hpp>
 #include <nlohmann/json.hpp>
+#include "thread_safe_queue.h" // Inclui a fila
+#include "mining_job.h"      // Inclui a struct do job
 
-// Use these aliases for convenience
 namespace asio = boost::asio;
 using tcp = asio::ip::tcp;
 using json = nlohmann::json;
 
 class PoolConnection {
 public:
-    // Constructor takes the host and port to connect to.
-    PoolConnection(const std::string& host, uint16_t port);
+    // O construtor agora recebe uma referência para a fila de jobs
+    PoolConnection(const std::string& host, uint16_t port, ThreadSafeQueue<MiningJob>& job_queue);
 
-    // Attempts to connect to the pool.
-    // Returns true on success, false on failure.
-    bool connect();
-
-    // Performs the Stratum handshake (subscribe & authorize).
-    bool handshake(const std::string& user, const std::string& pass);
+    // O método run() conterá o loop principal de rede
+    void run(const std::string& user, const std::string& pass);
+    void close();
 
 private:
+    bool connect();
+    bool handshake(const std::string& user, const std::string& pass);
+    bool write_json(const json& j);
+    json read_json();
+
     std::string host_;
     uint16_t port_;
-
-    // Writes a JSON-RPC message to the pool.
-    bool write_json(const json& j);
-
-    // Reads a line-delimited JSON-RPC message from the pool.
-    json read_json();
+    ThreadSafeQueue<MiningJob>& job_queue_; // Referência para a fila
 
     asio::io_context io_context_;
     tcp::socket socket_;
     asio::streambuf buffer_;
 
-    // --- Stratum Session State ---
     std::string session_id_;
     std::string extranonce1_;
     int extranonce2_size_;
