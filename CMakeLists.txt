@@ -45,6 +45,7 @@ add_executable(
     qtcminer
     src/main.cpp
     src/cuda_kernels.cu
+    src/pool_connection.cpp
 )
 
 # To ensure C++17 is used, a good practice
