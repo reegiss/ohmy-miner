@@ -11,7 +11,7 @@
 #include "miner_bridge.h"
 
 extern "C" {
-#include "qhash-gate.h"
+#include "qhash_miner.h"
 }
 
 // Global atomic flag to signal that the program should shut down.

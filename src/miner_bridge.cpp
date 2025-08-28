@@ -12,7 +12,7 @@
 
 // Forward declare the C functions we will be calling
 extern "C" {
-#include "qhash-gate.h"
+#include "qhash_miner.h"
 }
 
 // Global shutdown flag

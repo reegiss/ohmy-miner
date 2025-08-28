@@ -42,14 +42,15 @@ set(CMAKE_CUDA_ARCHITECTURES 75 86)
 # Tell CMake where to find our header files
 include_directories(include ${CUSTATEVEC_INCLUDE_DIR})
 
-# Create the executable from ALL our source files
+# Create the executable from our lean source list
 add_executable(
     qtcminer
     src/main.cpp
     src/pool_connection.cpp
+    src/miner_bridge.cpp
+    src/crypto_utils.cpp
     src/cuda_kernels.cu
     src/qhash.c
-    src/qhash-gate.c
     src/qhash-custatevec.cpp
     src/sha256.c
     src/miner_bridge.cpp
@@ -68,8 +69,6 @@ target_link_libraries(qtcminer PRIVATE
     Boost::thread
     Threads::Threads
     ${CUSTATEVEC_LIBRARY}
-    # SPH::sph is no longer needed
 )
 
-# Message for the user after configuration
 message(STATUS "QtcMiner project configuration complete. Use 'make' to build.")

@@ -1,7 +1,7 @@
 #include <assert.h>
 #include <stdio.h>
 #include "sha256-hash.h"
-#include "qhash-gate.h"
+#include "qhash_miner.h"
 
 #define FIXED_FRACTION int16_t
 #define FIXED_INTERMEDIATE int32_t
