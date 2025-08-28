@@ -26,7 +26,7 @@ void signal_handler(int signal) {
     g_shutdown = true;
 }
 
-// Struct to hold all our configuration settings
+// Struct to hold all our configuration settings.
 struct Config {
     std::string algo;
     std::string url;
@@ -36,14 +36,13 @@ struct Config {
     std::string pass;
 };
 
-// Function to parse the URL into host and port
+// Function to parse the URL into host and port.
 bool parse_url(const std::string& url, std::string& host, uint16_t& port);
 
-// The function for the miner thread
+// The function for the miner thread.
 void miner_thread_func(int device_id, ThreadSafeQueue<MiningJob>& job_queue, ThreadSafeQueue<FoundShare>& result_queue);
 
 int main(int argc, char* argv[]) {
-    // Register our signal handler for the interrupt signal (Ctrl+C)
     std::signal(SIGINT, signal_handler);
 
     auto available_gpus = detect_gpus();
