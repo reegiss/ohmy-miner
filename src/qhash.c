@@ -1,20 +1,12 @@
-#include <assert.h>
 #include <stdio.h>
 #include "sha256-hash.h"
 #include "qhash_miner.h"
 
-#define FIXED_FRACTION int16_t
-#define FIXED_INTERMEDIATE int32_t
-#define FRACTION_BITS 15
-
-static FIXED_FRACTION toFixed(double x) {
-    static_assert(FRACTION_BITS <= (sizeof(FIXED_FRACTION) * 8 - 1));
-    const FIXED_INTERMEDIATE fractionMult = 1 << FRACTION_BITS;
-    return (x >= 0.0) ? (x * fractionMult + 0.5) : (x * fractionMult - 0.5);
-}
-
 #define NIBBLE_MASK (unsigned char)0xF
 #define NIBBLE_SIZE 4
+
+// Declaração da função que agora será definida em C++
+int16_t toFixed(double x);
 
 static void split_nibbles(const unsigned char input[SHA256_BLOCK_SIZE],
                           unsigned char output[2 * SHA256_BLOCK_SIZE]) {
@@ -25,9 +17,8 @@ static void split_nibbles(const unsigned char input[SHA256_BLOCK_SIZE],
 }
 
 int qhash_hash(void *output, const void *input, int thr_id) {
-    unsigned char buf[SHA256_BLOCK_SIZE + NUM_QUBITS * sizeof(FIXED_FRACTION)];
+    unsigned char buf[SHA256_BLOCK_SIZE + NUM_QUBITS * sizeof(int16_t)];
 
-    // FIX: Explicitly cast pointers to match the function signature
     sha256_full((uint32_t*)buf, (const uint32_t*)input, INPUT_SIZE);
 
     unsigned char nibbles[2 * SHA256_BLOCK_SIZE];
@@ -37,14 +28,13 @@ int qhash_hash(void *output, const void *input, int thr_id) {
     run_simulation(nibbles, expectations);
 
     for (size_t i = 0; i < NUM_QUBITS; ++i) {
-        const size_t j = SHA256_BLOCK_SIZE + i * sizeof(FIXED_FRACTION);
-        for (size_t k = 0; k < sizeof(FIXED_FRACTION); ++k) {
-            buf[j + k] = toFixed(expectations[i]) >> (k * 8);
-        }
+        const size_t j = SHA256_BLOCK_SIZE + i * sizeof(int16_t);
+        int16_t fixed_val = toFixed(expectations[i]);
+        // Copia a representação little-endian
+        memcpy((void*)(buf + j), (void*)&fixed_val, sizeof(int16_t));
     }
 
-    // FIX: Explicitly cast pointers to match the function signature
-    sha256_full((uint32_t*)output, (const uint32_t*)buf, sizeof buf);
+    sha256_full((uint32_t*)output, (const uint32_t*)buf, sizeof(buf));
 
     return 1;
 }

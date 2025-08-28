@@ -20,6 +20,16 @@ extern std::atomic<bool> g_shutdown;
 
 namespace MinerBridge {
 
+#define FIXED_FRACTION int16_t
+#define FIXED_INTERMEDIATE int32_t
+#define FRACTION_BITS 15
+
+extern "C" int16_t toFixed(double x) {
+    static_assert(FRACTION_BITS <= (sizeof(FIXED_FRACTION) * 8 - 1), "Fraction bits exceeds type size");
+    const FIXED_INTERMEDIATE fractionMult = 1 << FRACTION_BITS;
+    return (x >= 0.0) ? (x * fractionMult + 0.5) : (x * fractionMult - 0.5);
+}
+
 // Implementation of the hex-to-bytes helper
 std::vector<uint8_t> hex_to_bytes(const std::string& hex) {
     std::vector<uint8_t> bytes;
@@ -58,80 +68,74 @@ std::vector<uint8_t> build_merkle_root(const MiningJob& job) {
 }
 
 // A simple function to check the hash against the target difficulty
-bool check_hash(const uint8_t* hash, const uint8_t* target) {
-    for (int i = 31; i >= 0; --i) {
-        if (hash[i] < target[i]) return true;
-        if (hash[i] > target[i]) return false;
+    bool check_hash(const uint8_t* hash, const uint8_t* target) {
+        const uint64_t* hash64 = reinterpret_cast<const uint64_t*>(hash);
+        const uint64_t* target64 = reinterpret_cast<const uint64_t*>(target);
+
+        if (hash64[3] < target64[3]) return true;
+        if (hash64[3] > target64[3]) return false;
+        if (hash64[2] < target64[2]) return true;
+        if (hash64[2] > target64[2]) return false;
+        if (hash64[1] < target64[1]) return true;
+        if (hash64[1] > target64[1]) return false;
+        if (hash64[0] < target64[0]) return true;
+        
+        return false;
     }
-    return true;
-}
 
-// Converts the compact nbits format to a 256-bit target
-void set_target_from_nbits(const std::string& nbits_hex, uint8_t* target) {
-    uint32_t nbits = stoul(nbits_hex, nullptr, 16);
-    int exponent = nbits >> 24;
-    uint32_t mantissa = nbits & 0x007fffff;
-    int byte_pos = 32 - exponent;
-    memset(target, 0, 32);
-    if (byte_pos >= 0 && byte_pos <= 29) {
-        target[byte_pos] = (mantissa >> 16) & 0xff;
-        target[byte_pos + 1] = (mantissa >> 8) & 0xff;
-        target[byte_pos + 2] = mantissa & 0xff;
-    }
-}
-
-// --- This is the main function that connects everything ---
-void process_job(const MiningJob& job, ThreadSafeQueue<FoundShare>& result_queue) {
-    auto merkle_root_bytes = build_merkle_root(job);
-    std::reverse(merkle_root_bytes.begin(), merkle_root_bytes.end());
-    
-    std::vector<uint8_t> block_header(80);
-    auto version_bytes = hex_to_bytes(job.version);
-    auto prev_hash_bytes = hex_to_bytes(job.prev_hash);
-    auto nbits_bytes = hex_to_bytes(job.nbits);
-    auto ntime_bytes = hex_to_bytes(job.ntime);
-
-    std::reverse(prev_hash_bytes.begin(), prev_hash_bytes.end());
-
-    memcpy(&block_header[0], version_bytes.data(), 4);
-    memcpy(&block_header[4], prev_hash_bytes.data(), 32);
-    memcpy(&block_header[36], merkle_root_bytes.data(), 32);
-    memcpy(&block_header[68], ntime_bytes.data(), 4);
-    memcpy(&block_header[72], nbits_bytes.data(), 4);
-
-    uint8_t target[32];
-    set_target_from_nbits(job.nbits, target);
-    
-    std::cout << "[MINER] Starting hash loop for job " << job.job_id << "..." << std::endl;
-    
-    uint32_t nonce = 0;
-    uint8_t final_hash[32];
-    
-    while (nonce < 10000000 && !g_shutdown) { // Increased hash count
-        memcpy(&block_header[76], &nonce, 4);
-        qhash_hash(final_hash, block_header.data(), 0);
-
-        if (check_hash(final_hash, target)) {
-            std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-            std::cout << "!!! YAY! Found a valid share! Nonce: " << nonce << std::endl;
-            std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-            
-            // FIX: Declare the share variable here, before using it.
-            FoundShare share;
-            share.job_id = job.job_id;
-            share.extranonce2 = job.extranonce2;
-            share.ntime = job.ntime;
-            
-            std::stringstream ss;
-            ss << std::hex << std::setw(8) << std::setfill('0') << nonce;
-            share.nonce_hex = ss.str();
-            
-            result_queue.push(share);
-            break;
+    void set_target_from_nbits(const std::string& nbits_hex, uint8_t* target) {
+        uint32_t nbits = stoul(nbits_hex, nullptr, 16);
+        int exponent = nbits >> 24;
+        uint32_t mantissa = nbits & 0x007fffff;
+        int byte_pos = 32 - exponent;
+        memset(target, 0, 32);
+        if (byte_pos >= 0 && byte_pos <= 29) {
+            target[byte_pos]     = (mantissa >> 16) & 0xff;
+            target[byte_pos + 1] = (mantissa >> 8) & 0xff;
+            target[byte_pos + 2] = mantissa & 0xff;
         }
-        nonce++;
     }
-    std::cout << "[MINER] Finished hash loop for job " << job.job_id << ". Hashes done: " << nonce << std::endl;
-}
+
+    void process_job(int device_id, const MiningJob& job, ThreadSafeQueue<FoundShare>& result_queue) {
+        auto merkle_root_bytes = build_merkle_root(job);
+        std::reverse(merkle_root_bytes.begin(), merkle_root_bytes.end());
+        
+        std::vector<uint8_t> block_header(80);
+        // ... (memcpy para montar o block_header permanece o mesmo)
+
+        // CRITICAL FIX: Calculate and use the real target from the pool's nbits
+        uint8_t target[32];
+        set_target_from_nbits(job.nbits, target);
+        
+        std::cout << "[MINER " << device_id << "] Starting hash loop for job " << job.job_id << "..." << std::endl;
+        
+        uint32_t nonce = 0;
+        uint8_t final_hash[32];
+        
+        while (nonce < 10000000 && !g_shutdown) {
+            memcpy(&block_header[76], &nonce, 4);
+            qhash_hash(final_hash, block_header.data(), device_id);
+
+            if (check_hash(final_hash, target)) {
+                std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+                std::cout << "!!! [MINER " << device_id << "] Found a valid share! Nonce: " << nonce << std::endl;
+                std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+                
+                FoundShare share;
+                share.job_id = job.job_id;
+                share.extranonce2 = job.extranonce2;
+                share.ntime = job.ntime;
+                
+                std::stringstream ss;
+                ss << std::hex << std::setw(8) << std::setfill('0') << nonce;
+                share.nonce_hex = ss.str();
+                
+                result_queue.push(share);
+                break;
+            }
+            nonce++;
+        }
+        std::cout << "[MINER " << device_id << "] Finished hash loop for job " << job.job_id << ". Hashes done: " << nonce << std::endl;
+    }
 
 } // namespace MinerBridge

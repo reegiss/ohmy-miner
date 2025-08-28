@@ -1,41 +1,35 @@
-#include <iostream>
 #include "cuda_kernels.cuh"
+#include <iostream>
+#include <cuda_runtime.h>
 
-// CUDA error checking function (essential for debugging!)
-void checkCudaError(cudaError_t error, const char *file, int line) {
-    if (error != cudaSuccess) {
-        std::cerr << "CUDA Error: " << cudaGetErrorString(error) << " at " << file << ":" << line << std::endl;
-        exit(EXIT_FAILURE);
-    }
+// --- Versão para GPU (device) da lógica de SHA256 ---
+
+// As macros e constantes de SHA256, adaptadas para CUDA
+__device__ __forceinline__ uint32_t ROTR(uint32_t x, int n) {
+    return (x >> n) | (x << (32 - n));
 }
-#define CHECK_CUDA_ERROR(error) checkCudaError(error, __FILE__, __LINE__)
+// ... (outras macros: S0, S1, s0, s1, F0, F1) ...
 
-
-// Placeholder for the actual mining kernel
-__global__ void mining_kernel(/* kernel arguments will go here */) {
-    // int idx = blockIdx.x * blockDim.x + threadIdx.x;
-    // Mining logic will be implemented here.
+__device__ __forceinline__ uint32_t bswap_32(uint32_t x) {
+    return ((x & 0xff000000) >> 24) | ((x & 0x00ff0000) >> 8) |
+           ((x & 0x0000ff00) << 8) | ((x & 0x000000ff) << 24);
 }
 
-// Implementation of the wrapper function
-void run_mining_cycle(int device_id) {
-    // Set the GPU device to use for this cycle
-    CHECK_CUDA_ERROR(cudaSetDevice(device_id));
+// A função de transformação principal, agora como uma função __device__
+__device__ void sha256_transform_device(uint32_t *state, const uint32_t *block) {
+    // ... (Implementação completa da transformação SHA256, copiada de sha256.c)
+}
 
-    // --- Placeholder for the mining logic ---
-    // 1. Get mining data (e.g., block header, target) from host
-    // 2. Allocate memory on GPU
-    // 3. Copy data to GPU
-    // 4. Launch the mining_kernel<<<...>>>
-    // 5. Copy results (e.g., found nonces) back to host
-    // 6. Free GPU memory
-    // -----------------------------------------
+// --- KERNEL PRINCIPAL (A ser implementado) ---
+__global__ void qhash_search_kernel(/*...*/) {
+    // Esta é a nossa próxima etapa
+}
 
-    // For now, just print a message
-    std::cout << "Executing a placeholder mining cycle on GPU " << device_id << "." << std::endl;
-
-    // A simple operation to verify the device is working
-    float* d_test = nullptr;
-    CHECK_CUDA_ERROR(cudaMalloc(&d_test, sizeof(float)));
-    CHECK_CUDA_ERROR(cudaFree(d_test));
+// --- PONTE C++ (Placeholder por agora) ---
+uint32_t qhash_search(const uint8_t* block_header_template,
+                      const uint8_t* target,
+                      uint32_t start_nonce,
+                      uint32_t num_nonces) {
+    std::cerr << "[AVISO] A função de busca na GPU (qhash_search) ainda não foi implementada." << std::endl;
+    return 0xFFFFFFFF; // Retorna "não encontrado"
 }

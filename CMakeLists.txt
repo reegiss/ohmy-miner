@@ -53,8 +53,7 @@ add_executable(
     src/qhash.c
     src/qhash-custatevec.cpp
     src/sha256.c
-    src/miner_bridge.cpp
-    src/crypto_utils.cpp
+    src/gpu_manager.cpp
 )
 
 # Set C++ and CUDA standards
