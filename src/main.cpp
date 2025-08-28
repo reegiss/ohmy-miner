@@ -37,52 +37,13 @@ struct Config {
 };
 
 // Function to parse the URL into host and port
-bool parse_url(const std::string& url, std::string& host, uint16_t& port) {
-    size_t colon_pos = url.find_last_of(':');
-    if (colon_pos == std::string::npos) {
-        std::cerr << "Error: Invalid URL format. Port is missing." << std::endl;
-        return false;
-    }
-    host = url.substr(0, colon_pos);
-    try {
-        unsigned long p = std::stoul(url.substr(colon_pos + 1));
-        if (p > 65535) {
-            std::cerr << "Error: Port number " << p << " is out of range." << std::endl;
-            return false;
-        }
-        port = static_cast<uint16_t>(p);
-    } catch (const std::exception& e) {
-        std::cerr << "Error: Invalid port number in URL." << std::endl;
-        return false;
-    }
-    return true;
-}
+bool parse_url(const std::string& url, std::string& host, uint16_t& port);
 
 // The function for the miner thread
-void miner_thread_func(int device_id, ThreadSafeQueue<MiningJob>& job_queue, ThreadSafeQueue<FoundShare>& result_queue) {
-    cudaSetDevice(device_id);
-    std::cout << "[MINER " << device_id << "] Thread started." << std::endl;
-
-    if (!qhash_thread_init(device_id)) {
-        std::cerr << "[MINER " << device_id << "] CRITICAL: Failed to initialize qhash. Shutting down thread." << std::endl;
-        g_shutdown = true;
-        return;
-    }
-
-    while (!g_shutdown) {
-        MiningJob job;
-        if (job_queue.wait_and_pop(job)) {
-            MinerBridge::process_job(device_id, job, result_queue);
-        } else {
-            break;
-        }
-    }
-
-    qhash_thread_destroy();
-    std::cout << "[MINER " << device_id << "] Miner thread shutting down." << std::endl;
-}
+void miner_thread_func(int device_id, ThreadSafeQueue<MiningJob>& job_queue, ThreadSafeQueue<FoundShare>& result_queue);
 
 int main(int argc, char* argv[]) {
+    // Register our signal handler for the interrupt signal (Ctrl+C)
     std::signal(SIGINT, signal_handler);
 
     auto available_gpus = detect_gpus();
@@ -155,4 +116,50 @@ int main(int argc, char* argv[]) {
     std::cout << "[MAIN] All threads have been joined. Exiting." << std::endl;
 
     return 0;
+}
+
+// --- Implementation of helper functions ---
+
+void miner_thread_func(int device_id, ThreadSafeQueue<MiningJob>& job_queue, ThreadSafeQueue<FoundShare>& result_queue) {
+    cudaSetDevice(device_id);
+    std::cout << "[MINER " << device_id << "] Thread started." << std::endl;
+
+    if (!qhash_thread_init(device_id)) {
+        std::cerr << "[MINER " << device_id << "] CRITICAL: Failed to initialize qhash. Shutting down thread." << std::endl;
+        g_shutdown = true;
+        return;
+    }
+
+    while (!g_shutdown) {
+        MiningJob job;
+        if (job_queue.wait_and_pop(job)) {
+            MinerBridge::process_job(device_id, job, result_queue);
+        } else {
+            break;
+        }
+    }
+
+    qhash_thread_destroy();
+    std::cout << "[MINER " << device_id << "] Miner thread shutting down." << std::endl;
+}
+
+bool parse_url(const std::string& url, std::string& host, uint16_t& port) {
+    size_t colon_pos = url.find_last_of(':');
+    if (colon_pos == std::string::npos) {
+        std::cerr << "Error: Invalid URL format. Port is missing." << std::endl;
+        return false;
+    }
+    host = url.substr(0, colon_pos);
+    try {
+        unsigned long p = std::stoul(url.substr(colon_pos + 1));
+        if (p > 65535) {
+            std::cerr << "Error: Port number " << p << " is out of range." << std::endl;
+            return false;
+        }
+        port = static_cast<uint16_t>(p);
+    } catch (const std::exception& e) {
+        std::cerr << "Error: Invalid port number in URL." << std::endl;
+        return false;
+    }
+    return true;
 }
