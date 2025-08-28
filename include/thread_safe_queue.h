@@ -13,26 +13,33 @@ public:
 
     void push(T value) {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (shutdown_) return; // Don't accept new items if shutting down
+        if (shutdown_) return;
         queue_.push(std::move(value));
         cond_.notify_one();
     }
 
-    // Now returns 'false' if the queue was shut down
-    bool wait_and_pop(T& value) {
-        std::unique_lock<std::mutex> lock(mutex_);
-        cond_.wait(lock, [this]{ return !queue_.empty() || shutdown_; });
-        
-        if (shutdown_ && queue_.empty()) {
+    // <-- ADD THIS METHOD BACK
+    bool try_pop(T& value) {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (queue_.empty() || shutdown_) {
             return false;
         }
-
         value = std::move(queue_.front());
         queue_.pop();
         return true;
     }
-    
-    // Wakes up any waiting threads and stops the queue
+
+    bool wait_and_pop(T& value) {
+        std::unique_lock<std::mutex> lock(mutex_);
+        cond_.wait(lock, [this]{ return !queue_.empty() || shutdown_; });
+        if (shutdown_ && queue_.empty()) {
+            return false;
+        }
+        value = std::move(queue_.front());
+        queue_.pop();
+        return true;
+    }
+
     void shutdown() {
         std::lock_guard<std::mutex> lock(mutex_);
         shutdown_ = true;

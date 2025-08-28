@@ -1,70 +1,74 @@
 # Minimum CMake version required
 cmake_minimum_required(VERSION 3.18)
 
-# Define the project name and languages (C++ and CUDA)
-project(QtcMiner LANGUAGES CXX CUDA)
+# Define the project name and languages
+project(QtcMiner LANGUAGES CXX C CUDA)
 
 # Include CMake's module for fetching external dependencies
 include(FetchContent)
 
 # --- Fetch Header-Only Dependencies ---
-# Fetch cxxopts for command-line parsing
-FetchContent_Declare(
-    cxxopts
-    GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git
-    GIT_TAG        v3.1.1 # Use a specific version for stability
-)
+FetchContent_Declare(cxxopts GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git GIT_TAG v3.1.1)
 FetchContent_MakeAvailable(cxxopts)
-
-# Fetch nlohmann_json for JSON manipulation
-FetchContent_Declare(
-    nlohmann_json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG        v3.11.3
-)
+FetchContent_Declare(nlohmann_json GIT_REPOSITORY https://github.com/nlohmann/json.git GIT_TAG v3.11.3)
 FetchContent_MakeAvailable(nlohmann_json)
 # ------------------------------------
 
 # --- Find System Dependencies ---
-# Find the Boost library, specifically for Asio's dependencies
 find_package(Boost 1.74.0 REQUIRED COMPONENTS system thread)
 find_package(CUDAToolkit REQUIRED)
 find_package(Threads REQUIRED)
+# SPH is no longer needed
 # ------------------------------------
+
+# --- Manual Find for cuStateVec (Robust Method) ---
+find_path(CUSTATEVEC_INCLUDE_DIR custatevec.h HINTS /opt/nvidia/cuquantum/include /usr/local/cuquantum/include)
+find_library(CUSTATEVEC_LIBRARY custatevec HINTS /opt/nvidia/cuquantum/lib /usr/local/cuquantum/lib)
+if (NOT CUSTATEVEC_INCLUDE_DIR OR NOT CUSTATEVEC_LIBRARY)
+    message(FATAL_ERROR "Could not find cuStateVec library or headers. Please ensure the cuQuantum SDK is installed correctly.")
+else()
+    message(STATUS "Found cuStateVec headers: ${CUSTATEVEC_INCLUDE_DIR}")
+    message(STATUS "Found cuStateVec library: ${CUSTATEVEC_LIBRARY}")
+endif()
+# --------------------------------------------------
 
 # --- Release Mode Optimizations ---
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O3 -DNDEBUG")
 set(CMAKE_CUDA_FLAGS_RELEASE "${CMAKE_CUDA_FLAGS_RELEASE} -O3 --use_fast_math")
+set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O3 -DNDEBUG")
 set(CMAKE_CUDA_ARCHITECTURES 75 86)
 # ----------------------------------------
 
-# Tell CMake where to find our own header files
-include_directories(include)
+# Tell CMake where to find our header files
+include_directories(include ${CUSTATEVEC_INCLUDE_DIR})
 
-# Find and create an executable from our source files
+# Create the executable from ALL our source files
 add_executable(
     qtcminer
     src/main.cpp
-    src/cuda_kernels.cu
     src/pool_connection.cpp
+    src/cuda_kernels.cu
+    src/qhash.c
+    src/qhash-gate.c
+    src/qhash-custatevec.cpp
+    src/sha256.c
+    src/miner_bridge.cpp
+    src/crypto_utils.cpp
 )
 
-# To ensure C++17 is used, a good practice
-set_target_properties(qtcminer PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
-    CUDA_STANDARD 17
-    CUDA_STANDARD_REQUIRED ON
-)
+# Set C++ and CUDA standards
+set_target_properties(qtcminer PROPERTIES CXX_STANDARD 17 CXX_STANDARD_REQUIRED ON CUDA_STANDARD 17 CUDA_STANDARD_REQUIRED ON)
 
 # Link the executable against all our dependencies
 target_link_libraries(qtcminer PRIVATE
-    CUDA::cudart          # CUDA Runtime
-    cxxopts               # Command-line parser
-    nlohmann_json::nlohmann_json # JSON library
-    Boost::system         # Boost dependencies
-    Boost::thread         # Boost dependencies
-    Threads::Threads      # Thread support
+    CUDA::cudart
+    cxxopts
+    nlohmann_json::nlohmann_json
+    Boost::system
+    Boost::thread
+    Threads::Threads
+    ${CUSTATEVEC_LIBRARY}
+    # SPH::sph is no longer needed
 )
 
 # Message for the user after configuration

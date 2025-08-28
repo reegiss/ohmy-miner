@@ -14,6 +14,8 @@ struct MiningJob {
     std::string nbits;
     std::string ntime;
     bool clean_jobs;
+    std::string extranonce1;
+    std::string extranonce2;
 };
 
 #endif // MINING_JOB_H

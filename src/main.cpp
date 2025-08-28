@@ -8,6 +8,11 @@
 #include "pool_connection.h"
 #include "thread_safe_queue.h"
 #include "mining_job.h"
+#include "miner_bridge.h"
+
+extern "C" {
+#include "qhash-gate.h"
+}
 
 // Global atomic flag to signal that the program should shut down.
 std::atomic<bool> g_shutdown(false);
@@ -51,40 +56,43 @@ bool parse_url(const std::string& url, std::string& host, uint16_t& port) {
 }
 
 // The function for the miner thread, now with shutdown logic
-void miner_thread_func(ThreadSafeQueue<MiningJob>& job_queue) {
-    std::cout << "[MINER] Miner thread started. Waiting for jobs..." << std::endl;
-    
+void miner_thread_func(ThreadSafeQueue<MiningJob>& job_queue,
+                       ThreadSafeQueue<FoundShare>& result_queue) { // <-- FIX: ADD THE SECOND QUEUE
+    std::cout << "[MINER] Miner thread started." << std::endl;
+
+    if (!qhash_thread_init(0)) {
+        std::cerr << "[MINER] CRITICAL: Failed to initialize qhash for this thread. Exiting." << std::endl;
+        g_shutdown = true;
+        return;
+    }
+
     while (!g_shutdown) {
         MiningJob job;
-        // wait_and_pop now returns false if the queue was shut down
         if (job_queue.wait_and_pop(job)) {
-            std::cout << "[MINER] Received new job with ID: " << job.job_id << std::endl;
-            if (job.clean_jobs) {
-                std::cout << "[MINER] Clearing previous jobs." << std::endl;
-            }
-            // Logic to call the CUDA kernel to mine this job will go here
+            MinerBridge::process_job(job, result_queue);
         } else {
-            // The queue was shut down, so we exit the loop
             break;
         }
     }
+
+    qhash_thread_destroy();
     std::cout << "[MINER] Miner thread shutting down." << std::endl;
 }
 
 int main(int argc, char* argv[]) {
     std::signal(SIGINT, signal_handler);
 
-    // Bloco de parsing do cxxopts (permanece o mesmo)
     Config config;
     try {
         cxxopts::Options options("QtcMiner", "A high-performance CUDA miner");
+        // ... (código do cxxopts para parsing)
         options.add_options()
             ("a,algo", "Hashing algorithm", cxxopts::value<std::string>())
             ("o,url", "Pool URL with port (e.g., host:port)", cxxopts::value<std::string>())
             ("u,user", "Username or wallet address for the pool", cxxopts::value<std::string>())
             ("p,pass", "Password for the pool", cxxopts::value<std::string>()->default_value("x"))
             ("h,help", "Print usage");
-        
+
         auto result = options.parse(argc, argv);
         if (result.count("help")) {
             std::cout << options.help() << std::endl;
@@ -109,28 +117,29 @@ int main(int argc, char* argv[]) {
     std::cout << "Configuration loaded. Initializing miner..." << std::endl;
     std::cout << "Press Ctrl+C to exit gracefully." << std::endl;
 
+    // --- CORREÇÃO AQUI ---
     ThreadSafeQueue<MiningJob> job_queue;
-    PoolConnection pool(config.host, config.port, job_queue);
+    ThreadSafeQueue<FoundShare> result_queue; // Cria a fila de resultados
+
+    // Passa ambas as filas para o construtor
+    PoolConnection pool(config.host, config.port, job_queue, result_queue);
+    // ---------------------
     
     std::thread network_thread(&PoolConnection::run, &pool, config.user, config.pass);
-    std::thread miner_thread(miner_thread_func, std::ref(job_queue));
+    std::thread miner_thread(miner_thread_func, std::ref(job_queue), std::ref(result_queue));
 
-    // A thread principal espera ativamente pelo sinal de desligamento
+    // Lógica de desligamento gracioso (permanece a mesma)
     while (!g_shutdown) {
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
     }
 
-    // --- SEQUÊNCIA DE DESLIGAMENTO CORRETA ---
     std::cout << "[MAIN] Shutdown signal received. Closing connections..." << std::endl;
-
-    // 1. SINALIZAR: Desbloqueia todas as threads que estiverem esperando.
     pool.close();
     job_queue.shutdown();
+    result_queue.shutdown(); // Também desliga a nova fila
 
-    // 2. ESPERAR: Agora que as threads foram desbloqueadas, esperamos por elas.
     network_thread.join();
     miner_thread.join();
-    // ----------------------------------------
 
     std::cout << "[MAIN] All threads have been joined. Exiting." << std::endl;
 

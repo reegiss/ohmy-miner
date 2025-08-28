@@ -4,8 +4,9 @@
 #include <string>
 #include <boost/asio.hpp>
 #include <nlohmann/json.hpp>
-#include "thread_safe_queue.h" // Inclui a fila
-#include "mining_job.h"      // Inclui a struct do job
+#include "thread_safe_queue.h"
+#include "mining_job.h"
+#include "found_share.h"
 
 namespace asio = boost::asio;
 using tcp = asio::ip::tcp;
@@ -13,28 +14,36 @@ using json = nlohmann::json;
 
 class PoolConnection {
 public:
-    // O construtor agora recebe uma referência para a fila de jobs
-    PoolConnection(const std::string& host, uint16_t port, ThreadSafeQueue<MiningJob>& job_queue);
+    PoolConnection(const std::string& host, uint16_t port,
+                   ThreadSafeQueue<MiningJob>& job_queue,
+                   ThreadSafeQueue<FoundShare>& result_queue);
 
-    // O método run() conterá o loop principal de rede
     void run(const std::string& user, const std::string& pass);
     void close();
 
 private:
+    // --- Métodos Síncronos (para inicialização) ---
     bool connect();
     bool handshake(const std::string& user, const std::string& pass);
     bool write_json(const json& j);
     json read_json();
 
+    // --- MÉTODOS ASSÍNCRONOS (para o loop principal) ---
+    void start_async_read();
+    void handle_read(const boost::system::error_code& ec, std::size_t bytes_transferred);
+    void check_submit_queue(const std::string& user);
+    void process_pool_message(const json& msg);
+    // ---------------------------------------------------------
+
     std::string host_;
     uint16_t port_;
-    ThreadSafeQueue<MiningJob>& job_queue_; // Referência para a fila
+    ThreadSafeQueue<MiningJob>& job_queue_;
+    ThreadSafeQueue<FoundShare>& result_queue_;
 
     asio::io_context io_context_;
     tcp::socket socket_;
     asio::streambuf buffer_;
 
-    std::string session_id_;
     std::string extranonce1_;
     int extranonce2_size_;
 };
