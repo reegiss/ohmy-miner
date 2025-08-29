@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <string.h> // <-- ADD THIS LINE
 #include "sha256-hash.h"
 #include "qhash_miner.h"
 

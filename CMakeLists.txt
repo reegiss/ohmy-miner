@@ -20,7 +20,7 @@ set(COMMON_CXX_FLAGS "-Wall -Wextra -Werror -Wno-unused-parameter")
 set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG -flto")
 set(CMAKE_CXX_FLAGS_DEBUG "-O0 -g -fsanitize=address,undefined")
 set(CMAKE_CUDA_FLAGS_RELEASE "-O3 --use_fast_math")
-set(CMAKE_CUDA_FLAGS_DEBUG "-g -G") # Add debug symbols to device code
+set(CMAKE_CUDA_FLAGS_DEBUG "-g -G")
 set(CMAKE_C_FLAGS_RELEASE "-O3 -DNDEBUG -flto")
 set(CMAKE_C_FLAGS_DEBUG "-O0 -g -fsanitize=address,undefined")
 
@@ -30,7 +30,7 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${COMMON_CXX_FLAGS}")
 # Target specific architectures
 set(CMAKE_CUDA_ARCHITECTURES 75 86)
 
-# Include CMake's module for fetching external dependencies
+# --- Dependencies ---
 include(FetchContent)
 
 # Header-Only
@@ -52,17 +52,12 @@ if (NOT CUSTATEVEC_INCLUDE_DIR OR NOT CUSTATEVEC_LIBRARY)
     message(FATAL_ERROR "Could not find cuStateVec library or headers. Please ensure the cuQuantum SDK is installed.")
 endif()
 
-# --- Project Structure ---
-include_directories(
-    include
-    ${CUSTATEVEC_INCLUDE_DIR}
-)
+# ==============================================================================
+# Core Library (Contains all shared logic)
+# ==============================================================================
+add_library(miner_core STATIC)
 
-add_executable(qtcminer)
-
-target_sources(qtcminer PRIVATE
-    src/main.cpp
-    src/pool_connection.cpp
+target_sources(miner_core PRIVATE
     src/miner_bridge.cpp
     src/crypto_utils.cpp
     src/qhash_algo.c
@@ -71,14 +66,62 @@ target_sources(qtcminer PRIVATE
     src/gpu_manager.cpp
 )
 
-target_link_libraries(qtcminer PRIVATE
+# PUBLIC visibility ensures that any target linking to miner_core gets these settings.
+target_include_directories(miner_core PUBLIC
+    include
+    ${CUSTATEVEC_INCLUDE_DIR}
+)
+
+target_link_libraries(miner_core PUBLIC
     CUDA::cudart
-    cxxopts
-    nlohmann_json::nlohmann_json
-    Boost::system
-    Boost::thread
     Threads::Threads
     ${CUSTATEVEC_LIBRARY}
 )
 
+# ==============================================================================
+# Main Miner Executable
+# ==============================================================================
+add_executable(qtcminer
+    src/main.cpp
+    src/pool_connection.cpp
+)
+
+target_link_libraries(qtcminer PRIVATE
+    miner_core # Inherits PUBLIC dependencies from miner_core
+    cxxopts
+    nlohmann_json::nlohmann_json
+    Boost::system
+    Boost::thread
+)
+
 message(STATUS "QtcMiner project configuration complete.")
+
+# ==============================================================================
+# Testing Support (GoogleTest)
+# ==============================================================================
+if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest      # <-- FIX: Corrected from 'googlestest' to 'googletest'
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG    v1.14.0
+    )
+    FetchContent_MakeAvailable(googletest) # <-- FIX: Corrected name here as well
+
+    enable_testing()
+
+    add_executable(qtcminer_tests
+        tests/test_main.cpp
+        tests/test_utils.cpp
+        tests/test_qhash.cpp
+    )
+    
+    # Link the test executable against GTest and our core library
+    target_link_libraries(qtcminer_tests PRIVATE
+        gtest_main
+        miner_core
+    )
+
+    include(GoogleTest)
+    gtest_discover_tests(qtcminer_tests)
+endif()
