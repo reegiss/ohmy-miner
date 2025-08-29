@@ -4,29 +4,25 @@
 #include <atomic>
 #include <csignal>
 #include <vector>
+#include <memory> // For std::unique_ptr
 #include <cuda_runtime.h>
-
-extern "C" {
-#include "qhash_miner.h"
-}
 
 #include "cxxopts.hpp"
 #include "pool_connection.h"
 #include "thread_safe_queue.h"
 #include "mining_job.h"
-#include "miner_bridge.h"
 #include "gpu_manager.h"
+#include "ialgorithm.h"
+#include "qhash_algorithm.h" // Include concrete algorithm
 
-// Global atomic flag to signal that the program should shut down.
+// Global atomic flag
 std::atomic<bool> g_shutdown(false);
 
-// Signal handler for Ctrl+C (SIGINT).
 void signal_handler(int signal) {
     std::cout << "\nCaught signal " << signal << ". Shutting down gracefully..." << std::endl;
     g_shutdown = true;
 }
 
-// Struct to hold all our configuration settings.
 struct Config {
     std::string algo;
     std::string url;
@@ -36,11 +32,10 @@ struct Config {
     std::string pass;
 };
 
-// Function to parse the URL into host and port.
 bool parse_url(const std::string& url, std::string& host, uint16_t& port);
 
-// The function for the miner thread.
-void miner_thread_func(int device_id, ThreadSafeQueue<MiningJob>& job_queue, ThreadSafeQueue<FoundShare>& result_queue);
+// The miner thread function now takes the algorithm as a parameter
+void miner_thread_func(int device_id, IAlgorithm* algorithm, ThreadSafeQueue<MiningJob>& job_queue, ThreadSafeQueue<FoundShare>& result_queue);
 
 int main(int argc, char* argv[]) {
     std::signal(SIGINT, signal_handler);
@@ -60,19 +55,15 @@ int main(int argc, char* argv[]) {
     try {
         cxxopts::Options options("QtcMiner", "A high-performance CUDA miner");
         options.add_options()
-            ("a,algo", "Hashing algorithm", cxxopts::value<std::string>())
+            ("a,algo", "Hashing algorithm (e.g., qhash)", cxxopts::value<std::string>())
             ("o,url", "Pool URL with port (e.g., host:port)", cxxopts::value<std::string>())
             ("u,user", "Username or wallet address for the pool", cxxopts::value<std::string>())
             ("p,pass", "Password for the pool", cxxopts::value<std::string>()->default_value("x"))
             ("h,help", "Print usage");
         
         auto result = options.parse(argc, argv);
-        if (result.count("help")) {
+        if (result.count("help") || !result.count("algo") || !result.count("url") || !result.count("user")) {
             std::cout << options.help() << std::endl;
-            return 0;
-        }
-        if (!result.count("algo") || !result.count("url") || !result.count("user")) {
-            std::cerr << "Error: Missing required arguments: --algo, --url, --user" << std::endl;
             return 1;
         }
         config.algo = result["algo"].as<std::string>();
@@ -87,6 +78,16 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
+    // --- Algorithm Factory ---
+    std::unique_ptr<IAlgorithm> algorithm;
+    if (config.algo == "qhash") {
+        algorithm = std::make_unique<QHashAlgorithm>();
+    } else {
+        std::cerr << "Error: Unknown algorithm '" << config.algo << "'" << std::endl;
+        return 1;
+    }
+    // -------------------------
+
     std::cout << "Configuration loaded. Initializing miner for " << available_gpus.size() << " GPU(s)..." << std::endl;
     std::cout << "Press Ctrl+C to exit gracefully." << std::endl;
 
@@ -98,7 +99,7 @@ int main(int argc, char* argv[]) {
 
     std::vector<std::thread> miner_threads;
     for (const auto& gpu : available_gpus) {
-        miner_threads.emplace_back(miner_thread_func, gpu.device_id, std::ref(job_queue), std::ref(result_queue));
+        miner_threads.emplace_back(miner_thread_func, gpu.device_id, algorithm.get(), std::ref(job_queue), std::ref(result_queue));
     }
 
     network_thread.join();
@@ -119,12 +120,12 @@ int main(int argc, char* argv[]) {
 
 // --- Implementation of helper functions ---
 
-void miner_thread_func(int device_id, ThreadSafeQueue<MiningJob>& job_queue, ThreadSafeQueue<FoundShare>& result_queue) {
+void miner_thread_func(int device_id, IAlgorithm* algorithm, ThreadSafeQueue<MiningJob>& job_queue, ThreadSafeQueue<FoundShare>& result_queue) {
     cudaSetDevice(device_id);
     std::cout << "[MINER " << device_id << "] Thread started." << std::endl;
 
-    if (!qhash_thread_init(device_id)) {
-        std::cerr << "[MINER " << device_id << "] CRITICAL: Failed to initialize qhash. Shutting down thread." << std::endl;
+    if (!algorithm->thread_init(device_id)) {
+        std::cerr << "[MINER " << device_id << "] CRITICAL: Failed to initialize algorithm. Shutting down thread." << std::endl;
         g_shutdown = true;
         return;
     }
@@ -132,13 +133,13 @@ void miner_thread_func(int device_id, ThreadSafeQueue<MiningJob>& job_queue, Thr
     while (!g_shutdown) {
         MiningJob job;
         if (job_queue.wait_and_pop(job)) {
-            MinerBridge::process_job(device_id, job, result_queue);
+            algorithm->process_job(device_id, job, result_queue);
         } else {
             break;
         }
     }
 
-    qhash_thread_destroy();
+    algorithm->thread_destroy();
     std::cout << "[MINER " << device_id << "] Miner thread shutting down." << std::endl;
 }
 

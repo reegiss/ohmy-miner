@@ -32,11 +32,8 @@ set(CMAKE_CUDA_ARCHITECTURES 75 86)
 
 # --- Dependencies ---
 include(FetchContent)
-
-# Header-Only
 FetchContent_Declare(cxxopts GIT_REPOSITORY https://github.com/jarro2783/cxxopts.git GIT_TAG v3.1.1)
 FetchContent_MakeAvailable(cxxopts)
-
 FetchContent_Declare(nlohmann_json GIT_REPOSITORY https://github.com/nlohmann/json.git GIT_TAG v3.11.3)
 FetchContent_MakeAvailable(nlohmann_json)
 
@@ -44,12 +41,10 @@ FetchContent_MakeAvailable(nlohmann_json)
 find_package(Boost 1.74.0 REQUIRED COMPONENTS system thread)
 find_package(CUDAToolkit REQUIRED)
 find_package(Threads REQUIRED)
-
-# cuStateVec (from cuQuantum SDK)
 find_path(CUSTATEVEC_INCLUDE_DIR custatevec.h HINTS /opt/nvidia/cuquantum/include /usr/local/cuquantum/include)
 find_library(CUSTATEVEC_LIBRARY custatevec HINTS /opt/nvidia/cuquantum/lib /usr/local/cuquantum/lib)
 if (NOT CUSTATEVEC_INCLUDE_DIR OR NOT CUSTATEVEC_LIBRARY)
-    message(FATAL_ERROR "Could not find cuStateVec library or headers. Please ensure the cuQuantum SDK is installed.")
+    message(FATAL_ERROR "Could not find cuStateVec library or headers.")
 endif()
 
 # ==============================================================================
@@ -58,15 +53,14 @@ endif()
 add_library(miner_core STATIC)
 
 target_sources(miner_core PRIVATE
-    src/miner_bridge.cpp
     src/crypto_utils.cpp
     src/qhash_algo.c
     src/qhash-custatevec.cpp
     src/sha256.c
     src/gpu_manager.cpp
+    src/qhash_algorithm.cpp # Algorithm implementation
 )
 
-# PUBLIC visibility ensures that any target linking to miner_core gets these settings.
 target_include_directories(miner_core PUBLIC
     include
     ${CUSTATEVEC_INCLUDE_DIR}
@@ -87,7 +81,7 @@ add_executable(qtcminer
 )
 
 target_link_libraries(qtcminer PRIVATE
-    miner_core # Inherits PUBLIC dependencies from miner_core
+    miner_core
     cxxopts
     nlohmann_json::nlohmann_json
     Boost::system
@@ -102,21 +96,19 @@ message(STATUS "QtcMiner project configuration complete.")
 if(CMAKE_BUILD_TYPE STREQUAL "Debug")
     include(FetchContent)
     FetchContent_Declare(
-        googletest      # <-- FIX: Corrected from 'googlestest' to 'googletest'
+        googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
         GIT_TAG    v1.14.0
     )
-    FetchContent_MakeAvailable(googletest) # <-- FIX: Corrected name here as well
+    FetchContent_MakeAvailable(googletest)
 
     enable_testing()
 
     add_executable(qtcminer_tests
         tests/test_main.cpp
-        tests/test_utils.cpp
         tests/test_qhash.cpp
     )
     
-    # Link the test executable against GTest and our core library
     target_link_libraries(qtcminer_tests PRIVATE
         gtest_main
         miner_core
