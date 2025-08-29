@@ -58,7 +58,8 @@ target_sources(miner_core PRIVATE
     src/qhash-custatevec.cpp
     src/sha256.c
     src/gpu_manager.cpp
-    src/qhash_algorithm.cpp # Algorithm implementation
+    src/qhash_algorithm.cpp
+    src/qhash_kernels.cu
 )
 
 target_include_directories(miner_core PUBLIC

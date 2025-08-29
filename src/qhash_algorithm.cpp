@@ -1,5 +1,6 @@
 #include "qhash_algorithm.h"
-#include "crypto_utils.h" // For sha256d
+#include "crypto_utils.h"
+#include "qhash_kernels.cuh" // Include our new batch search header
 #include <iostream>
 #include <algorithm>
 #include <iomanip>
@@ -35,8 +36,9 @@ void QHashAlgorithm::thread_destroy() {
     qhash_thread_destroy();
 }
 
-void QHashAlgorithm::process_job(int device_id, const MiningJob& job, ThreadSafeQueue<FoundShare>& result_queue) {
-    std::vector<uint8_t> block_header(80);
+// Renamed from process_job and removed the outer nonce loop
+uint32_t QHashAlgorithm::search_batch(int device_id, const MiningJob& job, uint32_t nonce_start, uint32_t num_nonces, ThreadSafeQueue<FoundShare>& result_queue) {
+    std::vector<uint8_t> block_header_template(76);
     auto version_bytes = hex_to_bytes(job.version);
     auto prev_hash_bytes = hex_to_bytes(job.prev_hash);
     auto merkle_root_bytes = build_merkle_root(job);
@@ -46,64 +48,40 @@ void QHashAlgorithm::process_job(int device_id, const MiningJob& job, ThreadSafe
     std::reverse(prev_hash_bytes.begin(), prev_hash_bytes.end());
     std::reverse(merkle_root_bytes.begin(), merkle_root_bytes.end());
 
-    memcpy(&block_header[0], version_bytes.data(), 4);
-    memcpy(&block_header[4], prev_hash_bytes.data(), 32);
-    memcpy(&block_header[36], merkle_root_bytes.data(), 32);
-    memcpy(&block_header[68], ntime_bytes.data(), 4);
-    memcpy(&block_header[72], nbits_bytes.data(), 4);
+    memcpy(&block_header_template[0], version_bytes.data(), 4);
+    memcpy(&block_header_template[4], prev_hash_bytes.data(), 32);
+    memcpy(&block_header_template[36], merkle_root_bytes.data(), 32);
+    memcpy(&block_header_template[68], ntime_bytes.data(), 4);
+    memcpy(&block_header_template[72], nbits_bytes.data(), 4);
 
     uint8_t target[32];
     set_target_from_nbits(job.nbits, target);
-    
-    std::cout << "[MINER " << device_id << "] Starting search for job " << job.job_id 
-              << " | Target: " << job.nbits << std::endl;
-    
-    uint32_t start_nonce = 0;
-    uint32_t end_nonce = 0xFFFFFFFF;
-    
-    auto start_time = std::chrono::high_resolution_clock::now();
-    int hashes_done = 0;
 
-    for (uint32_t nonce = start_nonce; nonce < end_nonce && !g_shutdown; ++nonce) {
-        block_header[76] = nonce & 0xFF;
-        block_header[77] = (nonce >> 8) & 0xFF;
-        block_header[78] = (nonce >> 16) & 0xFF;
-        block_header[79] = (nonce >> 24) & 0xFF;
+    uint32_t found_nonce = qhash_search_batch(
+        block_header_template.data(),
+        target,
+        nonce_start,
+        num_nonces
+    );
+
+    if (found_nonce != 0xFFFFFFFF) {
+        std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+        std::cout << "!!! [MINER " << device_id << "] GPU found valid share! Nonce: " << found_nonce << std::endl;
+        std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
         
-        uint8_t final_hash[32];
-        qhash_hash(final_hash, block_header.data(), device_id);
-
-        if (check_hash(final_hash, target)) {
-            std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-            std::cout << "!!! [MINER " << device_id << "] Valid share found! Nonce: " << nonce << std::endl;
-            std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-            
-            FoundShare share;
-            share.job_id = job.job_id;
-            share.extranonce2 = job.extranonce2;
-            share.ntime = job.ntime;
-            
-            std::stringstream ss;
-            ss << std::hex << std::setfill('0') << std::setw(8) << nonce;
-            share.nonce_hex = ss.str();
-            
-            result_queue.push(share);
-            break;
-        }
-
-        hashes_done++;
-        if ((nonce & 0x3FF) == 0) {
-             auto now = std::chrono::high_resolution_clock::now();
-             auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
-             if (duration > 2000) {
-                double hashrate = static_cast<double>(hashes_done) / (static_cast<double>(duration) / 1000.0);
-                std::cout << "[MINER " << device_id << "] Hashrate: " << std::fixed << std::setprecision(2) << hashrate << " H/s" << std::endl;
-                start_time = now;
-                hashes_done = 0;
-             }
-        }
+        FoundShare share;
+        share.job_id = job.job_id;
+        share.extranonce2 = job.extranonce2;
+        share.ntime = job.ntime;
+        
+        std::stringstream ss;
+        ss << std::hex << std::setfill('0') << std::setw(8) << found_nonce;
+        share.nonce_hex = ss.str();
+        
+        result_queue.push(share);
     }
-    std::cout << "[MINER " << device_id << "] Search finished for job " << job.job_id << std::endl;
+    
+    return found_nonce;
 }
 
 // --- Helper Implementations ---
@@ -159,6 +137,4 @@ void QHashAlgorithm::set_target_from_nbits(const std::string& nbits_hex, uint8_t
         target[byte_pos + 1] = (mantissa >> 8) & 0xff;
         target[byte_pos + 2] = mantissa & 0xff;
     }
-    
-    std::reverse(target, target + 32);
 }
