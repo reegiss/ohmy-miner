@@ -8,8 +8,6 @@
 
 class QHashAlgorithm : public IAlgorithm {
 public:
-    bool thread_init(int device_id) override;
-    void thread_destroy(void) override;
     uint32_t search_batch(int device_id, const MiningJob& job, uint32_t nonce_start, uint32_t num_nonces, ThreadSafeQueue<FoundShare>& result_queue) override;
 private:
     std::vector<uint8_t> hex_to_bytes(const std::string& hex);

@@ -28,13 +28,6 @@ extern "C" {
 }
 // --- IAlgorithm Implementation ---
 
-bool QHashAlgorithm::thread_init(int device_id) {
-    return qhash_thread_init(device_id);
-}
-
-void QHashAlgorithm::thread_destroy() {
-    qhash_thread_destroy();
-}
 
 // Renamed from process_job and removed the outer nonce loop
 uint32_t QHashAlgorithm::search_batch(int device_id, const MiningJob& job, uint32_t nonce_start, uint32_t num_nonces, ThreadSafeQueue<FoundShare>& result_queue) {
@@ -65,10 +58,6 @@ uint32_t QHashAlgorithm::search_batch(int device_id, const MiningJob& job, uint3
     );
 
     if (found_nonce != 0xFFFFFFFF) {
-        std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-        std::cout << "!!! [MINER " << device_id << "] GPU found valid share! Nonce: " << found_nonce << std::endl;
-        std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-        
         FoundShare share;
         share.job_id = job.job_id;
         share.extranonce2 = job.extranonce2;

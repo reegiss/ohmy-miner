@@ -3,9 +3,7 @@
 
 #include <cstdint>
 
-// Launches the qhash search kernel on the GPU.
-// Searches a range of nonces [start_nonce, start_nonce + num_nonces).
-// Returns the first valid nonce found, or 0xFFFFFFFF if none is found.
+// Launches the high-performance qPoW search kernel on the GPU.
 uint32_t qhash_search_batch(
     const uint8_t* header_template, // 76-byte header without the nonce
     const uint8_t* target,          // 32-byte target hash

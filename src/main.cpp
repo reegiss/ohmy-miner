@@ -124,14 +124,8 @@ int main(int argc, char* argv[]) {
 
 void miner_thread_func(int device_id, IAlgorithm* algorithm, ThreadSafeQueue<MiningJob>& job_queue, ThreadSafeQueue<FoundShare>& result_queue, GpuStats& stats) {
     cudaSetDevice(device_id);
-    if (!algorithm->thread_init(device_id)) {
-        std::cerr << "[MINER " << device_id << "] CRITICAL: Failed to initialize algorithm." << std::endl;
-        g_shutdown = true;
-        return;
-    }
 
     MiningJob current_job;
-    // Start by waiting for the very first job
     if (!job_queue.wait_and_pop(current_job)) {
         return; // Shutdown while waiting for the first job
     }
@@ -141,12 +135,11 @@ void miner_thread_func(int device_id, IAlgorithm* algorithm, ThreadSafeQueue<Min
         uint64_t total_hashes_done_for_job = 0;
         auto job_start_time = std::chrono::high_resolution_clock::now();
 
-        // Main nonce search loop for the current job
+        // Nonce search loop for the current job
         for (uint32_t nonce_base = 0; nonce_base < 0xFFFFFFFF && !g_shutdown; nonce_base += NONCES_PER_BATCH) {
-            // --- Check for a new job BEFORE starting the next batch ---
+            // Check for a new job BEFORE starting the next batch
             MiningJob new_job;
             if (job_queue.try_pop(new_job)) {
-                std::cout << "[MINER " << device_id << "] New job received, switching work." << std::endl;
                 current_job = new_job;
                 nonce_base = 0; // Reset nonce search
                 total_hashes_done_for_job = 0;
@@ -158,7 +151,7 @@ void miner_thread_func(int device_id, IAlgorithm* algorithm, ThreadSafeQueue<Min
 
             if (found_nonce != 0xFFFFFFFF) {
                 total_hashes_done_for_job += (found_nonce - nonce_base + 1);
-                break; // Found share, break from nonce loop to wait for next job
+                break; // Share found, break from nonce loop to wait for the next job
             } else {
                 total_hashes_done_for_job += num_nonces_in_batch;
             }
@@ -166,8 +159,8 @@ void miner_thread_func(int device_id, IAlgorithm* algorithm, ThreadSafeQueue<Min
             // Update hashrate
             auto now = std::chrono::high_resolution_clock::now();
             auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - job_start_time).count();
-            if (duration_ms > 500) { // Update hashrate if job has been running for a bit
-                double seconds = duration_ms / 1000.0;
+            if (duration_ms > 500) {
+                double seconds = static_cast<double>(duration_ms) / 1000.0;
                 double hashrate = static_cast<double>(total_hashes_done_for_job) / seconds;
                 std::lock_guard<std::mutex> lock(g_stats_mutex);
                 stats.hashrate = hashrate;
@@ -179,9 +172,6 @@ void miner_thread_func(int device_id, IAlgorithm* algorithm, ThreadSafeQueue<Min
             break; // Shutdown signaled
         }
     }
-
-    algorithm->thread_destroy();
-    std::cout << "[MINER " << device_id << "] Thread shutting down." << std::endl;
 }
 
 void telemetry_thread_func() {
