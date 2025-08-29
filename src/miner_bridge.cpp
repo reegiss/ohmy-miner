@@ -2,7 +2,6 @@
 #include "crypto_utils.h"
 #include "found_share.h"
 #include "thread_safe_queue.h"
-#include "cuda_kernels.cuh" // FIX: Include the CUDA kernel declarations
 #include <iostream>
 #include <stdexcept>
 #include <algorithm>
@@ -10,7 +9,9 @@
 #include <sstream>
 #include <vector>
 #include <cstring>
+#include <chrono>
 
+// Include the C header for the qPoW hash function
 extern "C" {
 #include "qhash_miner.h"
 }
@@ -24,67 +25,94 @@ namespace MinerBridge {
     std::vector<uint8_t> build_merkle_root(const MiningJob& job);
     bool check_hash(const uint8_t* hash, const uint8_t* target);
     void set_target_from_nbits(const std::string& nbits_hex, uint8_t* target);
-
-    #define FRACTION_BITS 15
-    extern "C" int16_t toFixed(double x) {
-        static_assert(FRACTION_BITS <= (sizeof(int16_t) * 8 - 1), "Fraction bits exceeds type size");
-        const int32_t fractionMult = 1 << FRACTION_BITS;
-        return (x >= 0.0) ? (x * fractionMult + 0.5) : (x * fractionMult - 0.5);
-    }
-
-    void process_job(int device_id, const MiningJob& job, ThreadSafeQueue<FoundShare>& result_queue) {
-        // 1. Build the block header template (76 bytes, without nonce)
-        std::vector<uint8_t> block_header_template(76);
-        auto version_bytes = hex_to_bytes(job.version);
-        auto prev_hash_bytes = hex_to_bytes(job.prev_hash);
-        auto nbits_bytes = hex_to_bytes(job.nbits);
-        auto ntime_bytes = hex_to_bytes(job.ntime);
-        auto merkle_root_bytes = build_merkle_root(job);
-
-        std::reverse(prev_hash_bytes.begin(), prev_hash_bytes.end());
-        std::reverse(merkle_root_bytes.begin(), merkle_root_bytes.end());
-
-        memcpy(&block_header_template[0], version_bytes.data(), 4);
-        memcpy(&block_header_template[4], prev_hash_bytes.data(), 32);
-        memcpy(&block_header_template[36], merkle_root_bytes.data(), 32);
-        // Nonce is at offset 76, so we stop here for the template.
-        
-        uint8_t target[32];
-        set_target_from_nbits(job.nbits, target);
-        
-        std::cout << "[MINER " << device_id << "] Launching GPU search for job " << job.job_id << "..." << std::endl;
-        
-        // 2. Call the high-performance search function on the GPU
-        uint32_t found_nonce = qhash_search(
-            block_header_template.data(),
-            target,
-            0,
-            10000000 // Test 10M nonces per job for now
-        );
-
-        // 3. Process the result from the GPU
-        if (found_nonce != 0xFFFFFFFF) {
-            std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-            std::cout << "!!! [MINER " << device_id << "] GPU found a valid share! Nonce: " << found_nonce << std::endl;
-            std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
-            
-            FoundShare share;
-            share.job_id = job.job_id;
-            share.extranonce2 = job.extranonce2;
-            share.ntime = job.ntime;
-            
-            std::stringstream ss;
-            ss << std::hex << std::setw(8) << std::setfill('0') << found_nonce;
-            share.nonce_hex = ss.str();
-            
-            result_queue.push(share);
-        } else {
-            std::cout << "[MINER " << device_id << "] GPU search finished for job " << job.job_id << ". No share found in range." << std::endl;
+    
+    // This C function is defined in qhash_algo.c but its toFixed conversion
+    // is implemented in this C++ file for easy access to C++ features.
+    extern "C" {
+        #define FRACTION_BITS 15
+        int16_t toFixed(double x) {
+            static_assert(FRACTION_BITS <= (sizeof(int16_t) * 8 - 1), "Fraction bits exceeds type size");
+            const int32_t fractionMult = 1 << FRACTION_BITS;
+            return (x >= 0.0) ? (x * fractionMult + 0.5) : (x * fractionMult - 0.5);
         }
     }
 
-    // --- Implementation of helper functions ---
+    void process_job(int device_id, const MiningJob& job, ThreadSafeQueue<FoundShare>& result_queue) {
+        // 1. Build the block header template (80 bytes)
+        std::vector<uint8_t> block_header(80);
+        auto version_bytes = hex_to_bytes(job.version);
+        auto prev_hash_bytes = hex_to_bytes(job.prev_hash);
+        auto merkle_root_bytes = build_merkle_root(job);
+        auto ntime_bytes = hex_to_bytes(job.ntime);
+        auto nbits_bytes = hex_to_bytes(job.nbits);
 
+        // Reverse endianness for these fields as required by the Bitcoin protocol
+        std::reverse(prev_hash_bytes.begin(), prev_hash_bytes.end());
+        std::reverse(merkle_root_bytes.begin(), merkle_root_bytes.end());
+
+        memcpy(&block_header[0], version_bytes.data(), 4);
+        memcpy(&block_header[4], prev_hash_bytes.data(), 32);
+        memcpy(&block_header[36], merkle_root_bytes.data(), 32);
+        memcpy(&block_header[68], ntime_bytes.data(), 4);
+        memcpy(&block_header[72], nbits_bytes.data(), 4);
+        // Position 76 is for the nonce, which will be set inside the loop
+
+        uint8_t target[32];
+        set_target_from_nbits(job.nbits, target);
+        
+        std::cout << "[MINER " << device_id << "] Starting search for job " << job.job_id 
+                  << " | Target: " << job.nbits << std::endl;
+        
+        uint32_t start_nonce = 0;
+        uint32_t end_nonce = 0xFFFFFFFF; // Search the entire nonce space for now
+        
+        auto start_time = std::chrono::high_resolution_clock::now();
+        int hashes_done = 0;
+
+        for (uint32_t nonce = start_nonce; nonce < end_nonce && !g_shutdown; ++nonce) {
+            // Set the current nonce in the header (little-endian)
+            block_header[76] = nonce & 0xFF;
+            block_header[77] = (nonce >> 8) & 0xFF;
+            block_header[78] = (nonce >> 16) & 0xFF;
+            block_header[79] = (nonce >> 24) & 0xFF;
+            
+            uint8_t final_hash[32];
+            qhash_hash(final_hash, block_header.data(), device_id);
+
+            if (check_hash(final_hash, target)) {
+                std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+                std::cout << "!!! [MINER " << device_id << "] Valid share found! Nonce: " << nonce << std::endl;
+                std::cout << "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!" << std::endl;
+                
+                FoundShare share;
+                share.job_id = job.job_id;
+                share.extranonce2 = job.extranonce2;
+                share.ntime = job.ntime;
+                
+                std::stringstream ss;
+                ss << std::hex << std::setfill('0') << std::setw(8) << nonce;
+                share.nonce_hex = ss.str();
+                
+                result_queue.push(share);
+                break; // Stop searching for this job
+            }
+
+            hashes_done++;
+            if ((nonce & 0x3FF) == 0) { // Update hashrate every 1024 hashes
+                 auto now = std::chrono::high_resolution_clock::now();
+                 auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(now - start_time).count();
+                 if (duration > 2000) { // Only print every 2 seconds
+                    double hashrate = static_cast<double>(hashes_done) / (static_cast<double>(duration) / 1000.0);
+                    std::cout << "[MINER " << device_id << "] Hashrate: " << std::fixed << std::setprecision(2) << hashrate << " H/s" << std::endl;
+                    start_time = now;
+                    hashes_done = 0;
+                 }
+            }
+        }
+        std::cout << "[MINER " << device_id << "] Search finished for job " << job.job_id << std::endl;
+    }
+
+    // --- Implementation of helper functions ---
     std::vector<uint8_t> hex_to_bytes(const std::string& hex) {
         std::vector<uint8_t> bytes;
         bytes.reserve(hex.length() / 2);
@@ -117,28 +145,29 @@ namespace MinerBridge {
     }
 
     bool check_hash(const uint8_t* hash, const uint8_t* target) {
-        const uint64_t* hash64 = reinterpret_cast<const uint64_t*>(hash);
-        const uint64_t* target64 = reinterpret_cast<const uint64_t*>(target);
-        if (hash64[3] < target64[3]) return true;
-        if (hash64[3] > target64[3]) return false;
-        if (hash64[2] < target64[2]) return true;
-        if (hash64[2] > target64[2]) return false;
-        if (hash64[1] < target64[1]) return true;
-        if (hash64[1] > target64[1]) return false;
-        if (hash64[0] < target64[0]) return true;
-        return false;
+        // Compare hash and target in reverse order (big-endian)
+        for (int i = 31; i >= 0; --i) {
+            if (hash[i] < target[i]) return true;
+            if (hash[i] > target[i]) return false;
+        }
+        return true; // Hashes are equal
     }
 
     void set_target_from_nbits(const std::string& nbits_hex, uint8_t* target) {
         uint32_t nbits = stoul(nbits_hex, nullptr, 16);
-        int exponent = nbits >> 24;
         uint32_t mantissa = nbits & 0x007fffff;
-        int byte_pos = 32 - exponent;
+        uint8_t exponent = nbits >> 24;
+        
         memset(target, 0, 32);
+
+        // This is a known good implementation for converting nbits to a 256-bit target
+        int byte_pos = 32 - exponent;
         if (byte_pos >= 0 && byte_pos <= 29) {
             target[byte_pos]     = (mantissa >> 16) & 0xff;
             target[byte_pos + 1] = (mantissa >> 8) & 0xff;
             target[byte_pos + 2] = mantissa & 0xff;
         }
+        
+        std::reverse(target, target + 32); // Target is used in big-endian comparison
     }
 }

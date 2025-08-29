@@ -65,8 +65,7 @@ target_sources(qtcminer PRIVATE
     src/pool_connection.cpp
     src/miner_bridge.cpp
     src/crypto_utils.cpp
-    src/cuda_kernels.cu
-    src/qhash.c
+    src/qhash_algo.c
     src/qhash-custatevec.cpp
     src/sha256.c
     src/gpu_manager.cpp
