@@ -1,6 +1,6 @@
 #include "cuda_kernels.cuh"
 #include <cuda_runtime.h>
-#include <cuComplex.h> // FIX: Include for cuComplex type
+#include <cuComplex.h> 
 #include <iostream>
 
 extern "C" {
@@ -113,7 +113,7 @@ uint32_t qhash_search(const uint8_t* block_header_template, const uint8_t* targe
 
     qhash_search_kernel<<<num_blocks, threads_per_block>>>(
         d_header,
-        d_target,
+        (const uint64_t*)d_target,
         start_nonce,
         num_nonces_to_search,
         d_found_nonce
