@@ -11,7 +11,6 @@
 namespace asio = boost::asio;
 using boost::system::error_code;
 
-// --- FIX: Update constructor definition ---
 PoolConnection::PoolConnection(asio::io_context& io_context, std::shared_ptr<MiningContext> context)
     : io_context_(io_context),
       context_(context),
@@ -151,12 +150,22 @@ void PoolConnection::process_line(std::string_view line) {
             uint64_t id = rpc.value("id", 0);
             if (id == 1) { auto result = rpc["result"]; extranonce1_ = result[1].get<std::string>(); extranonce2_size_ = result[2].get<int>(); return; }
             if (id == 2) { if (!rpc.value("result", false)) { std::cerr << "[PoolConnection] ERROR: Worker authorization failed." << std::endl; } return; }
+            
             bool is_submission_reply;
             { std::lock_guard<std::mutex> lock(submission_mutex_); is_submission_reply = pending_submissions_.erase(id); }
+            
             if (is_submission_reply && on_submit_result) {
-                bool ok = rpc.value("result", false);
-                std::string err = rpc.contains("error") && !rpc["error"].is_null() ? rpc["error"].dump() : "";
-                on_submit_result(id, ok, err);
+                // --- FIX: Safely check the 'result' field's type before getting value ---
+                bool accepted = false;
+                if (rpc.contains("result") && rpc["result"].is_boolean()) {
+                    accepted = rpc["result"].get<bool>();
+                }
+                
+                std::string err_str = "";
+                if (rpc.contains("error") && !rpc["error"].is_null()) {
+                    err_str = rpc["error"].dump();
+                }
+                on_submit_result(id, accepted, err_str);
             }
         }
     } catch (const nlohmann::json::exception& e) { std::cerr << "[PoolConnection] ERROR: JSON parse failed: " << e.what() << std::endl; }
