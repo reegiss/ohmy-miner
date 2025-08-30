@@ -25,8 +25,8 @@ uint32_t QHashAlgorithm::search_batch(int device_id, const MiningJob& job, const
     auto nbits_bytes = hex_to_bytes(job.nbits);
 
     // --- FIX: Correct byte order handling for block header ---
-    // Hashes (32 bytes) must be byte-reversed.
-    // Other fields are typically provided in correct little-endian hex format.
+    // Hashes (32 bytes) must be byte-reversed from big-endian string to little-endian bytes.
+    // Other fields are provided by the pool in the correct little-endian hex format.
     std::reverse(prev_hash_bytes.begin(), prev_hash_bytes.end());
     std::reverse(merkle_root_bytes.begin(), merkle_root_bytes.end());
 
