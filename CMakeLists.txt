@@ -54,7 +54,6 @@ add_library(miner_core STATIC)
 
 target_sources(miner_core PRIVATE
     src/crypto_utils.cpp
-    src/qhash_algo.c
     src/sha256.c
     src/gpu_manager.cpp
     src/qhash_algorithm.cpp
