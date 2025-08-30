@@ -25,7 +25,6 @@
 #include "qhash_algorithm.h"
 #include "stats.h"
 
-// Globals
 std::atomic<bool> g_shutdown(false);
 ThreadSafeQueue<MiningJob> g_job_queue;
 ThreadSafeQueue<FoundShare> g_result_queue;
@@ -44,9 +43,9 @@ void signal_handler(int) {
 }
 
 struct Config { std::string url, host, user, pass, algo; uint16_t port; };
+
 bool parse_url(const std::string& url, std::string& host, uint16_t& port);
 std::string format_hashrate(double hashrate);
-
 void miner_thread_func(int device_id, IAlgorithm* algorithm, GpuStats& stats);
 void telemetry_thread_func();
 void submission_thread_func(std::shared_ptr<PoolConnection> pool);
@@ -64,17 +63,25 @@ int main(int argc, char* argv[]) {
             ("p,pass", "Password", cxxopts::value<std::string>()->default_value("x"))
             ("h,help", "Print usage");
         auto result = options.parse(argc, argv);
-        if (result.count("help") || !result.count("url") || !result.count("user") || !result.count("algo")) { std::cout << options.help() << std::endl; return 1; }
+        if (result.count("help") || !result.count("url") || !result.count("user") || !result.count("algo")) { 
+            std::cout << options.help() << std::endl; return 1; 
+        }
         config.url = result["url"].as<std::string>(); 
         config.user = result["user"].as<std::string>(); 
         config.pass = result["pass"].as<std::string>();
         config.algo = result["algo"].as<std::string>();
         if (!parse_url(config.url, config.host, config.port)) { return 1; }
-    } catch (const cxxopts::exceptions::exception& e) { std::cerr << "Error parsing options: " << e.what() << std::endl; return 1; }
+    } catch (const cxxopts::exceptions::exception& e) { 
+        std::cerr << "Error parsing options: " << e.what() << std::endl; return 1; 
+    }
 
     auto available_gpus = detect_gpus();
-    if (available_gpus.empty()) { std::cerr << "No CUDA-compatible GPUs found." << std::endl; return 1; }
-    for(const auto& gpu : g_gpu_stats) { g_gpu_stats.push_back({gpu.device_id, gpu.name, 0.0}); }
+    if (available_gpus.empty()) { 
+        std::cerr << "No CUDA-compatible GPUs found." << std::endl; return 1; 
+    }
+    for(const auto& gpu : available_gpus) {
+        g_gpu_stats.push_back({gpu.device_id, gpu.name, 0.0});
+    }
 
     std::unique_ptr<IAlgorithm> algorithm;
     if (config.algo == "qhash") {
@@ -100,12 +107,15 @@ int main(int argc, char* argv[]) {
     std::thread network_thread([&io_context](){ try { io_context.run(); } catch (const std::exception& e) { std::cerr << "[NETWORK] Exception: " << e.what() << std::endl; } });
 
     std::vector<std::thread> miner_threads;
-    for (auto& stats : g_gpu_stats) { miner_threads.emplace_back(miner_thread_func, stats.device_id, algorithm.get(), std::ref(stats)); }
+    for (auto& stats : g_gpu_stats) {
+        miner_threads.emplace_back(miner_thread_func, stats.device_id, algorithm.get(), std::ref(stats));
+    }
     std::thread submit_thread(submission_thread_func, pool);
     std::thread telemetry_thread(telemetry_thread_func);
 
-    // Main thread now simply waits for shutdown signal
-    while(!g_shutdown.load()) { std::this_thread::sleep_for(std::chrono::milliseconds(200)); }
+    while(!g_shutdown.load()) { 
+        std::this_thread::sleep_for(std::chrono::milliseconds(200)); 
+    }
 
     std::cout << "[MAIN] Shutting down..." << std::endl;
     pool->disconnect();
@@ -121,10 +131,9 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-// Implementations of thread and helper functions
 bool parse_url(const std::string& url, std::string& host, uint16_t& port) {
     size_t colon_pos = url.find_last_of(':');
-    if (colon_pos == std::string::npos) { std::cerr << "Error: Invalid URL format. Expected host:port" << std::endl; return false; }
+    if (colon_pos == std::string::npos) { std::cerr << "Error: Invalid URL format." << std::endl; return false; }
     host = url.substr(0, colon_pos);
     try {
         unsigned long p = std::stoul(url.substr(colon_pos + 1));
@@ -132,6 +141,15 @@ bool parse_url(const std::string& url, std::string& host, uint16_t& port) {
         port = static_cast<uint16_t>(p);
     } catch (const std::exception&) { std::cerr << "Error: Invalid port number." << std::endl; return false; }
     return true;
+}
+
+std::string format_hashrate(double hashrate) {
+    std::stringstream ss;
+    ss << std::fixed << std::setprecision(2);
+    if (hashrate >= 1e6) ss << (hashrate / 1e6) << " MH/s";
+    else if (hashrate >= 1e3) ss << (hashrate / 1e3) << " kH/s";
+    else ss << hashrate << " H/s";
+    return ss.str();
 }
 
 void submission_thread_func(std::shared_ptr<PoolConnection> pool) {
@@ -148,11 +166,13 @@ void miner_thread_func(int device_id, IAlgorithm* algorithm, GpuStats& stats) {
     MiningJob current_job;
     if (!g_job_queue.wait_and_pop(current_job)) { return; }
 
+    uint32_t extranonce2_counter = 0;
+
     while (!g_shutdown.load()) {
         const uint32_t NONCES_PER_BATCH = 1024 * 1024;
         uint64_t total_hashes_done_for_job = 0;
         auto job_start_time = std::chrono::high_resolution_clock::now();
-
+        
         for (uint32_t nonce_base = 0; nonce_base < 0xFFFFFFFF && !g_shutdown.load(); nonce_base += NONCES_PER_BATCH) {
             MiningJob new_job;
             if (g_job_queue.try_pop(new_job)) {
@@ -160,22 +180,36 @@ void miner_thread_func(int device_id, IAlgorithm* algorithm, GpuStats& stats) {
                 nonce_base = 0;
                 total_hashes_done_for_job = 0;
                 job_start_time = std::chrono::high_resolution_clock::now();
+                extranonce2_counter = 0;
             }
 
+            std::stringstream ss;
+            ss << std::hex << std::setfill('0') << std::setw(8) << extranonce2_counter++;
+            current_job.extranonce2 = ss.str();
+
             uint32_t num_nonces_in_batch = std::min((uint32_t)NONCES_PER_BATCH, 0xFFFFFFFF - nonce_base);
-            algorithm->search_batch(device_id, current_job, nonce_base, num_nonces_in_batch, g_result_queue);
+            
+            uint32_t found_nonce = algorithm->search_batch(device_id, current_job, nonce_base, num_nonces_in_batch, g_result_queue);
+            
+            if (found_nonce != 0xFFFFFFFF) {
+                total_hashes_done_for_job += (found_nonce - nonce_base + 1);
+                std::lock_guard<std::mutex> lock(g_stats_mutex);
+                auto elapsed_s = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::high_resolution_clock::now() - job_start_time).count();
+                if (elapsed_s > 0.01) stats.hashrate = (double)total_hashes_done_for_job / elapsed_s;
+                break;
+            }
+
             total_hashes_done_for_job += num_nonces_in_batch;
             
-            auto now = std::chrono::high_resolution_clock::now();
-            auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(now - job_start_time).count();
-            if (duration_ms > 500) {
-                double seconds = static_cast<double>(duration_ms) / 1000.0;
+            auto elapsed_s = std::chrono::duration_cast<std::chrono::duration<double>>(std::chrono::high_resolution_clock::now() - job_start_time).count();
+            if (elapsed_s > 0.5) {
                 std::lock_guard<std::mutex> lock(g_stats_mutex);
-                stats.hashrate = static_cast<double>(total_hashes_done_for_job) / seconds;
+                stats.hashrate = (double)total_hashes_done_for_job / elapsed_s;
             }
         }
         
         if (!g_job_queue.wait_and_pop(current_job)) { break; }
+        extranonce2_counter = 0;
     }
 }
 
@@ -195,13 +229,4 @@ void telemetry_thread_func() {
         std::cout << "-------------------\n";
         std::cout << "TOTAL: " << format_hashrate(total_hashrate) << std::endl;
     }
-}
-
-std::string format_hashrate(double hashrate) {
-    std::stringstream ss;
-    ss << std::fixed << std::setprecision(2);
-    if (hashrate >= 1e6) ss << (hashrate / 1e6) << " MH/s";
-    else if (hashrate >= 1e3) ss << (hashrate / 1e3) << " kH/s";
-    else ss << hashrate << " H/s";
-    return ss.str();
 }

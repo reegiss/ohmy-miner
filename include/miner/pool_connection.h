@@ -13,6 +13,7 @@
 #include <atomic>
 #include <cstdint>
 #include <random>
+#include <set>
 
 #include "mining_job.h"
 
@@ -78,6 +79,9 @@ private:
     std::string extranonce1_;
     int extranonce2_size_ = 0;
 
-    std::atomic<uint64_t> request_id_{1};
+    // Submission tracking
+    std::mutex submission_mutex_;
+    std::set<uint64_t> pending_submissions_;
+    std::atomic<uint64_t> request_id_{3};
 };
 #endif // MINER_NET_POOL_CONNECTION_H_

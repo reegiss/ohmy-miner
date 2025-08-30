@@ -124,7 +124,7 @@ void PoolConnection::do_connect(const asio::ip::tcp::resolver::results_type& res
 void PoolConnection::on_connect(const error_code& ec) {
     connect_timer_.cancel();
     if (ec) {
-        std::cout << "[PoolConnection] DEBUG: on_connect callback fired with error: " << ec.message() << std::endl;
+        std::cout << "[PoolConnection] DEBUG: on_connect callback with error: " << ec.message() << std::endl;
         clean_up("Connect failed: " + ec.message());
         return;
     }
@@ -157,7 +157,7 @@ void PoolConnection::do_read() {
     auto self = shared_from_this();
     read_timer_.async_wait([self](const error_code& ec) {
         if (ec != asio::error::operation_aborted) {
-            self->clean_up("Pool read timeout (no data received).");
+            self->clean_up("Pool read timeout.");
         }
     });
 
@@ -207,6 +207,12 @@ void PoolConnection::submit(const std::string& job_id, const std::string& extran
         {"method", "mining.submit"},
         {"params", {user_, job_id, extranonce2, ntime, nonce_hex}}
     };
+
+    {
+        std::lock_guard<std::mutex> lock(submission_mutex_);
+        pending_submissions_.insert(current_req_id);
+    }
+    
     do_write(req.dump() + "\n");
 }
 
@@ -238,14 +244,37 @@ void PoolConnection::process_line(std::string_view line) {
             }
         } else if (rpc.contains("id")) {
             uint64_t id = rpc.value("id", 0);
-            if (id == 1) { // Subscription result
+            
+            if (id == 1) {
                 auto result = rpc["result"];
                 extranonce1_ = result[1].get<std::string>();
                 extranonce2_size_ = result[2].get<int>();
-            } else { // Assume submission or auth result
+                return;
+            }
+            if (id == 2) {
+                 if (!rpc.value("result", false)) {
+                     std::string error_msg = "Unknown error";
+                     if (rpc.contains("error") && !rpc["error"].is_null()) {
+                         error_msg = rpc["error"].dump();
+                     }
+                     std::cerr << "[PoolConnection] ERROR: Worker authorization failed: " << error_msg << std::endl;
+                 }
+                 return;
+            }
+
+            bool is_submission_reply;
+            {
+                std::lock_guard<std::mutex> lock(submission_mutex_);
+                is_submission_reply = pending_submissions_.erase(id);
+            }
+
+            if (is_submission_reply) {
                 if (on_submit_result) {
                     bool result_ok = rpc.value("result", false);
-                    std::string error_str = rpc.contains("error") && !rpc["error"].is_null() ? rpc["error"].dump() : "";
+                    std::string error_str;
+                    if (rpc.contains("error") && !rpc["error"].is_null()) {
+                        error_str = rpc["error"].dump();
+                    }
                     on_submit_result(id, result_ok, error_str);
                 }
             }
