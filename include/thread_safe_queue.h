@@ -1,5 +1,9 @@
-#ifndef THREAD_SAFE_QUEUE_H
-#define THREAD_SAFE_QUEUE_H
+// Copyright (c) 2025 The GPU-Miner Authors. All rights reserved.
+// Use of this source code is governed by a GPL-3.0-style license that can be
+// found in the LICENSE file.
+
+#ifndef THREAD_SAFE_QUEUE_H_
+#define THREAD_SAFE_QUEUE_H_
 
 #include <queue>
 #include <mutex>
@@ -18,7 +22,6 @@ public:
         cond_.notify_one();
     }
 
-    // <-- ADD THIS METHOD BACK
     bool try_pop(T& value) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (queue_.empty() || shutdown_) {
@@ -40,6 +43,13 @@ public:
         return true;
     }
 
+    // --- FIX: Add the missing clear() method ---
+    void clear() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        std::queue<T> empty;
+        queue_.swap(empty);
+    }
+
     void shutdown() {
         std::lock_guard<std::mutex> lock(mutex_);
         shutdown_ = true;
@@ -53,4 +63,4 @@ private:
     std::atomic<bool> shutdown_;
 };
 
-#endif // THREAD_SAFE_QUEUE_H
+#endif // THREAD_SAFE_QUEUE_H_
