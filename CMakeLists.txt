@@ -76,7 +76,7 @@ target_link_libraries(miner_core PUBLIC
 # ==============================================================================
 add_executable(qtcminer
     src/main.cpp
-    src/pool_connection.cpp
+    src/net/pool_connection.cpp
 )
 
 target_link_libraries(qtcminer PRIVATE
