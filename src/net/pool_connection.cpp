@@ -6,8 +6,8 @@
 #include <iostream>
 #include <iomanip>
 #include <sstream>
+#include <random>
 
-// Adicionando alias para clareza
 namespace asio = boost::asio;
 using boost::system::error_code;
 
@@ -16,91 +16,74 @@ PoolConnection::PoolConnection(asio::io_context& io_context)
       resolver_(io_context),
       socket_(io_context),
       connect_timer_(io_context),
-      read_timer_(io_context) {}
+      read_timer_(io_context),
+      reconnect_timer_(io_context),
+      rng_(std::random_device{}()) {}
 
-// ... O resto do construtor e métodos permanece o mesmo,
-// mas as assinaturas dos callbacks agora usam boost::system::error_code implicitamente ...
+PoolConnection::~PoolConnection() {}
 
-void PoolConnection::on_resolve(const error_code& ec, asio::ip::tcp::resolver::results_type results) {
-    if (ec) {
-        clean_up("Resolve failed: " + ec.message());
-        return;
-    }
-    do_connect(results);
-}
-
-void PoolConnection::on_connect(const error_code& ec) {
-    connect_timer_.cancel();
-    if (ec) {
-        clean_up("Connect failed: " + ec.message());
-        return;
-    }
-    // ...
-}
-
-void PoolConnection::do_read() {
-    if (!is_connected()) return;
-    read_timer_.expires_after(std::chrono::seconds(90));
-    auto self = shared_from_this();
-    read_timer_.async_wait([self](const error_code& ec) {
-        if (ec != asio::error::operation_aborted) {
-            self->clean_up("Pool read timeout (no data received).");
-        }
-    });
-
-    asio::async_read_until(socket_, buffer_, '\n',
-        [self](const error_code& ec, std::size_t bytes_transferred) {
-            self->on_read(ec, bytes_transferred);
-        });
-}
-
-void PoolConnection::on_read(const error_code& ec, std::size_t) {
-    read_timer_.cancel();
-    if (ec) {
-        clean_up("Read failed: " + ec.message());
-        return;
-    }
-    // ...
-}
-
-// O resto do arquivo (lógica de negócio, parsing de JSON, etc.) não precisa de mudanças.
-// Apenas as funções que lidam diretamente com callbacks do Asio são afetadas pela mudança do tipo de error_code.
-// Cole o resto do arquivo .cpp da etapa anterior aqui.
-// ... (implementation of the rest of the methods) ...
-PoolConnection::~PoolConnection() {
-    disconnect();
+bool PoolConnection::is_connected() const {
+    return connected_.load();
 }
 
 void PoolConnection::connect(const std::string& host, const std::string& port, const std::string& user, const std::string& pass) {
-    if (connected_.load()) return;
+    if (connected_.load() || shutting_down_.load()) return;
+    shutting_down_ = false;
     host_ = host;
     port_ = port;
     user_ = user;
     pass_ = pass;
-    do_resolve();
+    asio::post(io_context_, [self = shared_from_this()]() { self->do_resolve(); });
 }
 
 void PoolConnection::disconnect() {
+    shutting_down_ = true;
     asio::post(io_context_, [self = shared_from_this()]() {
-        self->clean_up("User requested disconnect.");
+        self->clean_up("User requested disconnect.", true);
     });
 }
 
-void PoolConnection::clean_up(const std::string& reason) {
-    if (!connected_.exchange(false)) return;
+void PoolConnection::clean_up(const std::string& reason, bool is_user_request) {
+    if (!socket_.is_open() && !connected_.load()) return;
+
+    bool was_connected = connected_.exchange(false);
     
     error_code ec;
+    reconnect_timer_.cancel(ec);
     connect_timer_.cancel(ec);
     read_timer_.cancel(ec);
+    
     if (socket_.is_open()) {
         socket_.shutdown(asio::ip::tcp::socket::shutdown_both, ec);
         socket_.close(ec);
     }
 
-    if (on_disconnected) {
+    if (was_connected && on_disconnected) {
         on_disconnected(reason);
     }
     std::cout << "[PoolConnection] INFO: Disconnected. Reason: " << reason << std::endl;
+
+    if (!is_user_request && !shutting_down_.load()) {
+        schedule_reconnect();
+    }
+}
+
+void PoolConnection::schedule_reconnect() {
+    reconnect_attempts_++;
+    auto delay_seconds = std::min(60, 1 << std::min(6, (int)reconnect_attempts_ - 1));
+    std::uniform_int_distribution<int> dist(-150, 150);
+    auto jitter_ms = (delay_seconds * dist(rng_));
+    auto delay_ms = std::chrono::milliseconds(delay_seconds * 1000 + jitter_ms);
+
+    std::cout << "[PoolConnection] INFO: Scheduling reconnect attempt #" << reconnect_attempts_ 
+              << " in " << delay_ms.count() << "ms." << std::endl;
+
+    reconnect_timer_.expires_after(delay_ms);
+    reconnect_timer_.async_wait([self = shared_from_this()](const error_code& ec) {
+        if (!ec) {
+            self->do_resolve();
+        }
+    });
 }
 
 void PoolConnection::do_resolve() {
@@ -112,13 +95,22 @@ void PoolConnection::do_resolve() {
         });
 }
 
+void PoolConnection::on_resolve(const error_code& ec, asio::ip::tcp::resolver::results_type results) {
+    if (ec) {
+        clean_up("Resolve failed: " + ec.message());
+        return;
+    }
+    do_connect(results);
+}
+
 void PoolConnection::do_connect(const asio::ip::tcp::resolver::results_type& results) {
     std::cout << "[PoolConnection] INFO: Connecting..." << std::endl;
     connect_timer_.expires_after(std::chrono::seconds(10));
     auto self = shared_from_this();
+    
     connect_timer_.async_wait([self](const error_code& ec) {
-        std::cout << "[PoolConnection] DEBUG: Connect timer fired with code: " << ec.message() << std::endl;
         if (ec != asio::error::operation_aborted) {
+            std::cout << "[PoolConnection] DEBUG: Connect timer fired." << std::endl;
             self->socket_.cancel();
         }
     });
@@ -129,6 +121,22 @@ void PoolConnection::do_connect(const asio::ip::tcp::resolver::results_type& res
         });
 }
 
+void PoolConnection::on_connect(const error_code& ec) {
+    connect_timer_.cancel();
+    if (ec) {
+        std::cout << "[PoolConnection] DEBUG: on_connect callback fired with error: " << ec.message() << std::endl;
+        clean_up("Connect failed: " + ec.message());
+        return;
+    }
+    
+    std::cout << "[PoolConnection] INFO: Connection established." << std::endl;
+    connected_ = true;
+    reconnect_attempts_ = 0;
+    if (on_connected) on_connected();
+    
+    send_login();
+    do_read();
+}
 
 void PoolConnection::send_login() {
     nlohmann::json req_subscribe = {
@@ -142,6 +150,42 @@ void PoolConnection::send_login() {
     do_write(req_auth.dump() + "\n");
 }
 
+void PoolConnection::do_read() {
+    if (!is_connected()) return;
+
+    read_timer_.expires_after(std::chrono::seconds(90));
+    auto self = shared_from_this();
+    read_timer_.async_wait([self](const error_code& ec) {
+        if (ec != asio::error::operation_aborted) {
+            self->clean_up("Pool read timeout (no data received).");
+        }
+    });
+
+    asio::async_read_until(socket_, buffer_, '\n',
+        [self](const error_code& ec, std::size_t bytes) {
+            self->on_read(ec, bytes);
+        });
+}
+
+void PoolConnection::on_read(const error_code& ec, std::size_t) {
+    read_timer_.cancel();
+
+    if (ec) {
+        clean_up("Read failed: " + ec.message());
+        return;
+    }
+
+    std::istream is(&buffer_);
+    std::string line;
+    if (std::getline(is, line) && !line.empty()) {
+        std::cout << "[POOL] <- " << line << std::endl;
+        process_line(line);
+    }
+
+    if (is_connected()) {
+        do_read();
+    }
+}
 
 void PoolConnection::do_write(const std::string& message) {
     if (!is_connected()) return;
@@ -186,23 +230,23 @@ void PoolConnection::process_line(std::string_view line) {
                     job.ntime = params[7].get<std::string>();
                     job.clean_jobs = params[8].get<bool>();
                     job.extranonce1 = extranonce1_;
-                    std::stringstream ss;
-                    ss << std::hex << std::setw(extranonce2_size_ * 2) << std::setfill('0') << 0;
-                    job.extranonce2 = ss.str();
+                    job.extranonce2 = "";
                     on_new_job(job);
                 }
+            } else if (method == "mining.set_difficulty") {
+                std::cout << "[PoolConnection] INFO: Difficulty change received." << std::endl;
             }
         } else if (rpc.contains("id")) {
             uint64_t id = rpc.value("id", 0);
-            if (id == 1) { 
+            if (id == 1) { // Subscription result
                 auto result = rpc["result"];
                 extranonce1_ = result[1].get<std::string>();
                 extranonce2_size_ = result[2].get<int>();
-            } else { 
+            } else { // Assume submission or auth result
                 if (on_submit_result) {
-                    bool result = rpc.value("result", false);
+                    bool result_ok = rpc.value("result", false);
                     std::string error_str = rpc.contains("error") && !rpc["error"].is_null() ? rpc["error"].dump() : "";
-                    on_submit_result(id, result, error_str);
+                    on_submit_result(id, result_ok, error_str);
                 }
             }
         }

@@ -34,7 +34,7 @@ public:
     void disconnect();
     void submit(const std::string& job_id, const std::string& extranonce2, const std::string& ntime, const std::string& nonce_hex);
 
-    bool is_connected() const { return connected_.load(); }
+    bool is_connected() const;
 
 private:
     void do_resolve();
