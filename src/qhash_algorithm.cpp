@@ -12,7 +12,6 @@
 #include <cstring>
 #include <vector>
 
-// --- FIX: Ensure this signature matches the header ---
 uint32_t QHashAlgorithm::search_batch(int device_id, const MiningJob& job, const uint8_t* target, uint32_t nonce_start, uint32_t num_nonces, ThreadSafeQueue<FoundShare>& result_queue) {
     if (job.job_id.empty()) {
         return 0xFFFFFFFF;
@@ -25,11 +24,11 @@ uint32_t QHashAlgorithm::search_batch(int device_id, const MiningJob& job, const
     auto ntime_bytes = hex_to_bytes(job.ntime);
     auto nbits_bytes = hex_to_bytes(job.nbits);
 
-    // Stratum requires byte order reversal for these header fields
-    std::reverse(version_bytes.begin(), version_bytes.end());
+    // --- FIX: Correct byte order handling for block header ---
+    // Hashes (32 bytes) must be byte-reversed.
+    // Other fields are typically provided in correct little-endian hex format.
     std::reverse(prev_hash_bytes.begin(), prev_hash_bytes.end());
-    std::reverse(ntime_bytes.begin(), ntime_bytes.end());
-    std::reverse(nbits_bytes.begin(), nbits_bytes.end());
+    std::reverse(merkle_root_bytes.begin(), merkle_root_bytes.end());
 
     memcpy(&block_header_template[0], version_bytes.data(), 4);
     memcpy(&block_header_template[4], prev_hash_bytes.data(), 32);

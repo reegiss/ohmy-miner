@@ -168,5 +168,7 @@ void PoolConnection::process_line(std::string_view line) {
                 on_submit_result(id, accepted, err_str);
             }
         }
-    } catch (const nlohmann::json::exception& e) { std::cerr << "[PoolConnection] ERROR: JSON parse failed: " << e.what() << std::endl; }
+    } catch (const nlohmann::json::exception& e) {
+        std::cerr << "[PoolConnection] ERROR: JSON parse failed: " << e.what() << std::endl;
+    }
 }
