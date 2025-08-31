@@ -1,38 +1,37 @@
 /*
  * Copyright (c) 2025 Regis Araujo Melo
  * License: MIT
+ *
+ * qhash_kernels.cuh
+ *
+ * Declaration for GPU SHA256d batch search.
  */
 
 #pragma once
-
-#include <stdint.h>
-
-// =======================================================
-// QHash GPU Kernel API
-// =======================================================
-// Este header expõe a função que inicializa a busca por nonces
-// usando o kernel CUDA. A implementação está em qhash_kernels.cu
-// =======================================================
+#include <cstdint>
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 /**
- * @brief Executa busca em batch de nonces utilizando GPU (QTC Kernel).
+ * qhash_search_batch
  *
- * @param header_h      Ponteiro para o header do bloco (76 bytes).
- * @param target_h      Ponteiro para o target compactado (32 bytes).
- * @param start_nonce   Nonce inicial da busca.
- * @param num_nonces    Quantidade de nonces a processar.
- * @return uint32_t     Retorna o nonce encontrado ou 0xFFFFFFFF se não encontrou.
+ * header_h: pointer to 76-byte header template (version..nbits), host memory.
+ * target_h: pointer to 32-byte target (big-endian byte order).
+ * start_nonce: first nonce to test.
+ * num_nonces: number of nonces to test.
+ *
+ * Returns: found nonce (minimum) or 0xFFFFFFFF if none found.
+ *
+ * Notes:
+ * - This function copies inputs to device and launches a kernel that computes
+ *   SHA256d(header||nonce) for nonces in [start_nonce, start_nonce+num_nonces).
+ * - The kernel compares the final hash (big-endian bytes) lexicographically
+ *   against target_h and uses atomicMin to record the smallest matching nonce.
  */
-uint32_t qhash_search_batch(const uint8_t* header_h,
-                            const uint8_t* target_h,
-                            uint32_t start_nonce,
-                            uint32_t num_nonces);
+uint32_t qhash_search_batch(const uint8_t* header_h, const uint8_t* target_h, uint32_t start_nonce, uint32_t num_nonces);
 
 #ifdef __cplusplus
 }
 #endif
-
