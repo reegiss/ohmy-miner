@@ -11,8 +11,8 @@
 #include <cmath>
 #include <algorithm>
 
-// Performs 256-bit division to calculate share target from difficulty
-// without external multiprecision libraries, using integer-based arithmetic.
+// Performs a high-precision 256-bit by 64-bit integer division to calculate 
+// the share target from a numeric difficulty, without external libraries.
 inline void target_from_difficulty(double diff, uint8_t target[32]) {
     if (diff <= 1e-9) diff = 1e-9;
 
@@ -27,36 +27,30 @@ inline void target_from_difficulty(double diff, uint8_t target[32]) {
 
     uint64_t result_parts[4] = {0, 0, 0, 0};
     
-    // Use a large integer to scale the difficulty to avoid floating point issues
-    // while maintaining precision.
-    uint64_t divisor = static_cast<uint64_t>(diff);
-    double fractional_part = diff - divisor;
+    // Scale the difficulty by 2^32 to maintain precision while using integer math.
+    // This is a common technique in difficulty calculation.
+    uint64_t divisor = static_cast<uint64_t>(diff * (1ULL << 32));
+    if (divisor == 0) divisor = 1;
 
-    uint64_t remainder = 0;
-
-    // Custom 256-bit / 64-bit long division
+    // Perform 256-bit / 64-bit long division.
+    // The remainder from the division of the higher part becomes the high part
+    // of the next dividend.
+    unsigned __int128 remainder = 0;
     for (int i = 3; i >= 0; --i) {
-        // __int128 can hold the intermediate dividend (remainder + current part)
-        unsigned __int128 dividend = ((unsigned __int128)remainder << 64) | max_target_parts[i];
-        if (divisor > 0) {
-            result_parts[i] = dividend / divisor;
-            remainder = dividend % divisor;
-        } else {
-            // Handle cases where difficulty is less than 1.0
-            result_parts[i] = 0; // Will be handled by fractional part later
-            remainder = max_target_parts[i];
-        }
+        unsigned __int128 dividend = (remainder << 64) | max_target_parts[i];
+        result_parts[i] = dividend / divisor;
+        remainder = dividend % divisor;
     }
     
-    // Approximate the division by the fractional part if it exists
-    if (fractional_part > 1e-9) {
-        // This is a simplification; a full floating point 256-bit division is very complex.
-        // We essentially perform another division on the result.
-        for(int i=3; i>=0; --i) {
-            result_parts[i] /= (1.0 + fractional_part);
-        }
+    // The final target needs to be scaled back down by 2^32.
+    // We achieve this with a 256-bit right shift.
+    uint64_t shift_amount = 32;
+    for (int i = 0; i < 4; ++i) {
+        uint64_t carry = (i > 0) ? (result_parts[i] << (64 - shift_amount)) : 0;
+        result_parts[i - 1] |= carry;
+        result_parts[i] >>= shift_amount;
     }
-    
+
     // Convert result from little-endian parts to a big-endian byte array.
     for (int i = 0; i < 4; ++i) {
         for (int j = 0; j < 8; ++j) {

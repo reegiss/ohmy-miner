@@ -25,17 +25,16 @@ uint32_t QHashAlgorithm::search_batch(int device_id, const MiningJob& job, const
     auto ntime_bytes = hex_to_bytes(job.ntime);
     auto nbits_bytes = hex_to_bytes(job.nbits);
     
-    // Copy data directly from hex strings into the header buffer
+    // Step 1: Copy all data directly from hex strings into the header buffer
     memcpy(&block_header_template[0], version_bytes.data(), 4);
     memcpy(&block_header_template[4], prev_hash_bytes.data(), 32);
     memcpy(&block_header_template[36], merkle_root_bytes.data(), 32);
     memcpy(&block_header_template[68], ntime_bytes.data(), 4);
     memcpy(&block_header_template[72], nbits_bytes.data(), 4);
 
-    // --- FIX: Apply correct dword-swapping only to hash fields, in-place,
-    // as determined by comparative analysis.
-    swap_endian_words(&block_header_template[4], 32);  // prev_hash
-    swap_endian_words(&block_header_template[36], 32); // merkle_root
+    // --- FIX: Apply dword-swapping to the *entire* 76-byte header, ---
+    // --- replicating the behavior of the reference miner.         ---
+    swap_endian_words(block_header_template.data(), 76);
 
     uint32_t found_nonce = qhash_search_batch(
         block_header_template.data(),
