@@ -1,158 +1,89 @@
+// Copyright (c) 2025 The GPU-Miner Authors. All rights reserved.
+// Use of this source code is governed by a GPL-3.0-style license that can be
+// found in the LICENSE file.
+
 #include "qhash_algorithm.h"
 #include "crypto_utils.h"
-#include "logger.h"
-
-#include <cstring>
-#include <stdexcept>
-#include <sstream>
+#include "miner/endian_util.h"
+#include "qhash_kernels.cuh"
+#include <iostream>
+#include <algorithm>
 #include <iomanip>
+#include <sstream>
+#include <cstring>
 
-// Função auxiliar para converter um vetor de bytes em uma string hexadecimal
-std::string bytes_to_hex(const std::vector<uint8_t>& bytes) {
-    std::ostringstream oss;
-    for (auto byte : bytes) {
-        oss << std::hex << std::setw(2) << std::setfill('0') << static_cast<int>(byte);
+uint32_t QHashAlgorithm::search_batch(int, const MiningJob& job, const uint8_t* target, uint32_t nonce_start, uint32_t num_nonces, ThreadSafeQueue<FoundShare>& result_queue) {
+    if (job.job_id.empty()) {
+        return 0xFFFFFFFF;
     }
-    return oss.str();
+
+    std::vector<uint8_t> block_header_template(76);
+    auto version_bytes = hex_to_bytes(job.version);
+    auto prev_hash_bytes = hex_to_bytes(job.prev_hash);
+    auto merkle_root_bytes = build_merkle_root(job);
+    auto ntime_bytes = hex_to_bytes(job.ntime);
+    auto nbits_bytes = hex_to_bytes(job.nbits);
+
+    memcpy(&block_header_template[0], version_bytes.data(), 4);
+    memcpy(&block_header_template[4], prev_hash_bytes.data(), 32);
+    memcpy(&block_header_template[36], merkle_root_bytes.data(), 32);
+    memcpy(&block_header_template[68], ntime_bytes.data(), 4);
+    memcpy(&block_header_template[72], nbits_bytes.data(), 4);
+
+    swap_endian_words(&block_header_template[4], 32);
+    swap_endian_words(&block_header_template[36], 32);
+
+    uint32_t found_nonce = qhash_search_batch(
+        block_header_template.data(),
+        target,
+        nonce_start,
+        num_nonces
+    );
+
+    if (found_nonce != 0xFFFFFFFF) {
+        FoundShare share;
+        share.job_id = job.job_id;
+        share.extranonce2 = job.extranonce2;
+        share.ntime = job.ntime;
+        std::stringstream ss;
+        ss << std::hex << std::setfill('0') << std::setw(8) << found_nonce;
+        share.nonce_hex = ss.str();
+        result_queue.push(share);
+    }
+    
+    return found_nonce;
 }
 
-// Convert hex string to bytes
 std::vector<uint8_t> QHashAlgorithm::hex_to_bytes(const std::string& hex) {
     std::vector<uint8_t> bytes;
+    bytes.reserve(hex.length() / 2);
     for (unsigned int i = 0; i < hex.length(); i += 2) {
-        std::string byteString = hex.substr(i, 2);
-        uint8_t byte = static_cast<uint8_t>(strtol(byteString.c_str(), nullptr, 16));
-        bytes.push_back(byte);
+        bytes.push_back((uint8_t)strtol(hex.substr(i, 2).c_str(), NULL, 16));
     }
     return bytes;
 }
 
-// Build Merkle root from coinbase hash and branches
-std::vector<uint8_t> QHashAlgorithm::build_merkle_root(
-    const std::vector<uint8_t>& coinbase_hash, 
-    const std::vector<std::string>& merkle_branches) {
+std::vector<uint8_t> QHashAlgorithm::build_merkle_root(const MiningJob& job) {
+    auto coinbase_p1 = hex_to_bytes(job.coinb1);
+    auto coinbase_en1 = hex_to_bytes(job.extranonce1);
+    auto coinbase_en2 = hex_to_bytes(job.extranonce2);
+    auto coinbase_p2 = hex_to_bytes(job.coinb2);
 
-    if (merkle_branches.empty()) {
-        return coinbase_hash;
+    std::vector<uint8_t> coinbase_tx_data;
+    coinbase_tx_data.insert(coinbase_tx_data.end(), coinbase_p1.begin(), coinbase_p1.end());
+    coinbase_tx_data.insert(coinbase_tx_data.end(), coinbase_en1.begin(), coinbase_en1.end());
+    coinbase_tx_data.insert(coinbase_tx_data.end(), coinbase_en2.begin(), coinbase_en2.end());
+    coinbase_tx_data.insert(coinbase_tx_data.end(), coinbase_p2.begin(), coinbase_p2.end());
+
+    std::vector<uint8_t> current_hash(32);
+    sha256d(current_hash.data(), coinbase_tx_data.data(), coinbase_tx_data.size());
+
+    for (const auto& branch_hex : job.merkle_branches) {
+        auto branch_bytes = hex_to_bytes(branch_hex);
+        std::vector<uint8_t> combined(64);
+        memcpy(combined.data(), current_hash.data(), 32);
+        memcpy(combined.data() + 32, branch_bytes.data(), 32);
+        sha256d(current_hash.data(), combined.data(), 64);
     }
-
-    std::vector<uint8_t> hash = coinbase_hash;
-    for (const auto& branch_hex : merkle_branches) {
-        auto branch = hex_to_bytes(branch_hex);
-        if (branch.size() != 32) {
-            throw std::runtime_error("Invalid merkle branch size");
-        }
-        std::vector<uint8_t> concat;
-        concat.reserve(64);
-        concat.insert(concat.end(), hash.begin(), hash.end());
-        concat.insert(concat.end(), branch.begin(), branch.end());
-        uint8_t tmp[32];
-        sha256d(tmp, concat.data(), concat.size());
-        hash.assign(tmp, tmp + 32);
-    }
-
-    return hash;
-}
-
-// Convert nBits to a 32-byte target
-void QHashAlgorithm::set_target_from_nbits(const std::string& nbits_hex, uint8_t* target) {
-    if (nbits_hex.size() != 8) {
-        throw std::runtime_error("Invalid nBits size");
-    }
-
-    auto nbits = hex_to_bytes(nbits_hex);
-    if (nbits.size() != 4) {
-        throw std::runtime_error("nBits must be 4 bytes");
-    }
-
-    uint32_t compact = (nbits[0] << 24) | (nbits[1] << 16) | (nbits[2] << 8) | nbits[3];
-    uint32_t exp = compact >> 24;
-    uint32_t mant = compact & 0x007fffff;
-
-    std::memset(target, 0, 32);
-    if (exp <= 3) {
-        mant >>= 8 * (3 - exp);
-        std::memcpy(target + 28, &mant, 4);
-    } else {
-        std::memcpy(target + 32 - exp, &mant, 3);
-    }
-}
-
-// Check if hash is less than or equal to target
-bool QHashAlgorithm::check_hash(const uint8_t* hash, const uint8_t* target) {
-    return std::memcmp(hash, target, 32) <= 0;
-}
-
-// Main batch execution
-uint32_t QHashAlgorithm::search_batch(
-    int device_id, const MiningJob& job, const uint8_t* target, 
-    uint32_t nonce_start, uint32_t num_nonces, ThreadSafeQueue<FoundShare>& result_queue) {
-
-    // Build coinbase
-    auto coinb1 = hex_to_bytes(job.coinb1);
-    auto coinb2 = hex_to_bytes(job.coinb2);
-    auto extranonce1 = hex_to_bytes(job.extranonce1);
-    auto extranonce2 = hex_to_bytes(job.extranonce2);
-
-    std::vector<uint8_t> coinbase;
-    coinbase.reserve(coinb1.size() + extranonce1.size() + extranonce2.size() + coinb2.size());
-    coinbase.insert(coinbase.end(), coinb1.begin(), coinb1.end());
-    coinbase.insert(coinbase.end(), extranonce1.begin(), extranonce1.end());
-    coinbase.insert(coinbase.end(), extranonce2.begin(), extranonce2.end());
-    coinbase.insert(coinbase.end(), coinb2.begin(), coinb2.end());
-
-    // Coinbase hash (double SHA256, little endian)
-    uint8_t coinbase_hash[32];
-    sha256d(coinbase_hash, coinbase.data(), coinbase.size());
-    std::vector<uint8_t> coinbase_hash_le(coinbase_hash, coinbase_hash + 32);
-
-    // Merkle root
-    const auto merkle_root_le = build_merkle_root(coinbase_hash_le, job.merkle_branches);
-
-    // Block header (little-endian fields)
-    std::vector<uint8_t> header(80, 0);
-
-    // Version
-    auto ver = hex_to_bytes(job.version);
-    if (ver.size() != 4) throw std::runtime_error("Invalid version size");
-    std::memcpy(header.data(), ver.data(), 4);
-
-    // Prevhash
-    auto prev = hex_to_bytes(job.prev_hash);
-    if (prev.size() != 32) throw std::runtime_error("Invalid prevhash size");
-    std::memcpy(header.data() + 4, prev.data(), 32);
-
-    // Merkle root
-    std::memcpy(header.data() + 36, merkle_root_le.data(), 32);
-
-    // nTime
-    auto ntime = hex_to_bytes(job.ntime);
-    if (ntime.size() != 4) throw std::runtime_error("Invalid ntime size");
-    std::memcpy(header.data() + 68, ntime.data(), 4);
-
-    // nBits
-    auto nbits = hex_to_bytes(job.nbits);
-    if (nbits.size() != 4) throw std::runtime_error("Invalid nbits size");
-    std::memcpy(header.data() + 72, nbits.data(), 4);
-
-    uint32_t valid_shares = 0;
-    for (uint32_t i = 0; i < num_nonces; i++) {
-        uint32_t nonce = nonce_start + i;
-        std::memcpy(header.data() + 76, &nonce, 4);
-        uint8_t final_hash[32];
-        sha256d(final_hash, header.data(), header.size());
-
-        if (check_hash(final_hash, target)) {
-            FoundShare share;
-            share.job_id = job.job_id;
-            share.extranonce2 = job.extranonce2;
-            share.ntime = job.ntime;
-            std::ostringstream oss;
-            oss << std::hex << std::setw(8) << std::setfill('0') << nonce;
-            share.nonce_hex = oss.str();
-            result_queue.push(share);
-            valid_shares++;
-        }
-    }
-    return valid_shares;
+    return current_hash;
 }

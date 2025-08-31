@@ -10,9 +10,9 @@
 
 // Performs an in-place byte swap on each 4-byte word (dword) within a buffer.
 // This is required for fields like prev_hash and merkle_root, converting them
-// from the big-endian format of a hex string to the little-endian dwords
-// required by the hashing algorithm.
-// Example: 0xAABBCCDD becomes 0xDDCCBBAA.
+// from the big-endian representation of a hex string to the little-endian dwords
+// required by hashing algorithms based on the Bitcoin protocol.
+// Example: a 4-byte word 0xAABBCCDD becomes 0xDDCCBBAA.
 inline void swap_endian_words(uint8_t* data, size_t size) {
     for (size_t i = 0; i < size; i += 4) {
         std::swap(data[i], data[i + 3]);
