@@ -1,37 +1,19 @@
-/*
- * Copyright (c) 2025 Regis Araujo Melo
- * License: MIT
- *
- * qhash_kernels.cuh
- *
- * Declaration for GPU SHA256d batch search.
- */
+#ifndef QHASH_ALGORITHM_H
+#define QHASH_ALGORITHM_H
 
-#pragma once
+#include "ialgorithm.h"
+#include <vector>
 #include <cstdint>
+#include <string>
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+class QHashAlgorithm : public IAlgorithm {
+public:
+    uint32_t search_batch(int device_id, const MiningJob& job, uint32_t nonce_start, uint32_t num_nonces, ThreadSafeQueue<FoundShare>& result_queue) override;
+private:
+    std::vector<uint8_t> hex_to_bytes(const std::string& hex);
+    std::vector<uint8_t> build_merkle_root(const MiningJob& job);
+    bool check_hash(const uint8_t* hash, const uint8_t* target);
+    void set_target_from_nbits(const std::string& nbits_hex, uint8_t* target);
+};
 
-/**
- * qhash_search_batch
- *
- * header_h: pointer to 76-byte header template (version..nbits), host memory.
- * target_h: pointer to 32-byte target (big-endian byte order).
- * start_nonce: first nonce to test.
- * num_nonces: number of nonces to test.
- *
- * Returns: found nonce (minimum) or 0xFFFFFFFF if none found.
- *
- * Notes:
- * - This function copies inputs to device and launches a kernel that computes
- *   SHA256d(header||nonce) for nonces in [start_nonce, start_nonce+num_nonces).
- * - The kernel compares the final hash (big-endian bytes) lexicographically
- *   against target_h and uses atomicMin to record the smallest matching nonce.
- */
-uint32_t qhash_search_batch(const uint8_t* header_h, const uint8_t* target_h, uint32_t start_nonce, uint32_t num_nonces);
-
-#ifdef __cplusplus
-}
-#endif
+#endif // QHASH_ALGORITHM_H
