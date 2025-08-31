@@ -4,15 +4,16 @@
 
 #include "qhash_algorithm.h"
 #include "crypto_utils.h"
-#include "miner/endian_util.h"
 #include "qhash_kernels.cuh"
+#include "miner/endian_util.h"
 #include <iostream>
 #include <algorithm>
 #include <iomanip>
 #include <sstream>
 #include <cstring>
+#include <vector>
 
-uint32_t QHashAlgorithm::search_batch(int, const MiningJob& job, const uint8_t* target, uint32_t nonce_start, uint32_t num_nonces, ThreadSafeQueue<FoundShare>& result_queue) {
+uint32_t QHashAlgorithm::search_batch(int device_id, const MiningJob& job, const uint8_t* target, uint32_t nonce_start, uint32_t num_nonces, ThreadSafeQueue<FoundShare>& result_queue) {
     if (job.job_id.empty()) {
         return 0xFFFFFFFF;
     }
@@ -23,15 +24,18 @@ uint32_t QHashAlgorithm::search_batch(int, const MiningJob& job, const uint8_t* 
     auto merkle_root_bytes = build_merkle_root(job);
     auto ntime_bytes = hex_to_bytes(job.ntime);
     auto nbits_bytes = hex_to_bytes(job.nbits);
-
+    
+    // Copy data directly from hex strings into the header buffer
     memcpy(&block_header_template[0], version_bytes.data(), 4);
     memcpy(&block_header_template[4], prev_hash_bytes.data(), 32);
     memcpy(&block_header_template[36], merkle_root_bytes.data(), 32);
     memcpy(&block_header_template[68], ntime_bytes.data(), 4);
     memcpy(&block_header_template[72], nbits_bytes.data(), 4);
 
-    swap_endian_words(&block_header_template[4], 32);
-    swap_endian_words(&block_header_template[36], 32);
+    // --- FIX: Apply correct dword-swapping only to hash fields, in-place,
+    // as determined by comparative analysis.
+    swap_endian_words(&block_header_template[4], 32);  // prev_hash
+    swap_endian_words(&block_header_template[36], 32); // merkle_root
 
     uint32_t found_nonce = qhash_search_batch(
         block_header_template.data(),
@@ -45,9 +49,11 @@ uint32_t QHashAlgorithm::search_batch(int, const MiningJob& job, const uint8_t* 
         share.job_id = job.job_id;
         share.extranonce2 = job.extranonce2;
         share.ntime = job.ntime;
+        
         std::stringstream ss;
         ss << std::hex << std::setfill('0') << std::setw(8) << found_nonce;
         share.nonce_hex = ss.str();
+        
         result_queue.push(share);
     }
     
