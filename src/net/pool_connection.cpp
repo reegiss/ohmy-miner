@@ -85,7 +85,7 @@ void PoolConnection::on_connect(const error_code& ec) {
 }
 
 void PoolConnection::send_login() {
-    do_write(nlohmann::json{{"id", 1}, {"method", "mining.subscribe"}, {"params", {"qtcminer/0.1"}}}.dump() + "\n");
+    do_write(nlohmann::json{{"id", 1}, {"method", "mining.subscribe"}, {"params", {"qtcminer/0.1.1"}}}.dump() + "\n");
     do_write(nlohmann::json{{"id", 2}, {"method", "mining.authorize"}, {"params", {user_, pass_}}}.dump() + "\n");
 }
 
