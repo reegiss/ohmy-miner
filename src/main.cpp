@@ -26,6 +26,7 @@
 #include <cuda_runtime.h>
 
 #include "miner/Config.hpp"
+#include "miner/Device.hpp"
 #include "miner/IAlgorithm.hpp"
 
 void print_welcome_message();
@@ -48,11 +49,20 @@ int main(int argc, char** argv) {
     fmt::print("  - User:      {}\n", config.user);
     fmt::print("  - Pass:      {}\n", std::string(config.pass.length(), '*')); // Obfuscate password in log
 
-    // Future steps will be implemented here:
-    // 1. Discover CUDA devices.
-    // 2. Load the specified algorithm plugin.
-    // 3. Initialize the Stratum client.
-    // 4. Start the main mining loop.
+    try {
+        miner::DeviceManager device_manager;
+        device_manager.list_devices();
+
+        // Future steps:
+        // 1. Select device(s) based on config.
+        // 2. Load algorithm plugin.
+        // 3. Initialize Stratum client.
+        // 4. Start mining loop.
+
+    } catch (const std::runtime_error& e) {
+        fmt::print(stderr, fg(fmt::color::red), "A critical CUDA error occurred: {}\n", e.what());
+        return 1;
+    }
 
     fmt::print("\nInitialization complete. Exiting for now.\n");
 
@@ -79,8 +89,8 @@ void print_welcome_message() {
     fmt::print(" * License:      GPL-3.0\n");
     fmt::print(" * Build:        {} {} ({})\n", __DATE__, __TIME__, compiler_info);
     fmt::print(" * CUDA Version: {}\n", cuda_version_str);
-    fmt::print(" * Dev Fee:      This software has a 1% developer fee.\n");
-    fmt::print(" *               (1 minute of mining every 100 minutes)\n");
+    fmt::print(" * Dev Fee:      This software has a 2% developer fee.\n");
+    fmt::print(" *               (2 minute of mining every 100 minutes)\n");
     fmt::print(fg(fmt::color::yellow), " * INFO:         This is pre-alpha software. Use at your own risk.\n");
     fmt::print("\n");
 }

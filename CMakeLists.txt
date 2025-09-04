@@ -52,6 +52,7 @@ FetchContent_MakeAvailable(cxxopts)
 add_executable(ohmy-miner 
     src/main.cpp
     src/config.cpp
+    src/device.cpp
 )
 
 # --- Include Directories ---
