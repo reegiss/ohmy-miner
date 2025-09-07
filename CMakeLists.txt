@@ -48,11 +48,17 @@ FetchContent_Declare(
 )
 FetchContent_MakeAvailable(cxxopts)
 
+# Module for device abstraction (CUDA/NVML)
+add_library(miner_device STATIC
+  src/device.cpp
+)
+target_include_directories(miner_device PUBLIC include)
+target_link_libraries(miner_device PUBLIC CUDA::nvml)
+
 # --- Main Executable ---
 add_executable(ohmy-miner 
     src/main.cpp
     src/config.cpp
-    src/device.cpp
 )
 
 # --- Include Directories ---
@@ -64,6 +70,7 @@ target_include_directories(ohmy-miner PUBLIC
 find_package(CUDAToolkit REQUIRED)
 target_link_libraries(ohmy-miner PRIVATE
     # Link to fmt library
+    miner_device
     fmt::fmt
     cxxopts::cxxopts
     # Link to CUDA runtime and driver libraries

@@ -2,34 +2,69 @@
 
 /*
  * Copyright (C) 2025 Regis Araujo Melo
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ * This program is free software under the GPL-3.0 license. See LICENSE file.
  */
 
+#include "miner/device.hpp"
 
+#include <chrono>
+#include <iostream>
+#include <thread>
+#include <vector>
 #include <string>
 #include <optional>
 
 #include <fmt/core.h>
 #include <fmt/color.h>
+#include <fmt/ranges.h>
+#include <fmt/chrono.h>
+
 #include <cuda_runtime.h>
 
 #include "miner/Config.hpp"
-#include "miner/Device.hpp"
+
 #include "miner/IAlgorithm.hpp"
 
 void print_welcome_message();
+
+void run_telemetry_monitor() {
+    // This function's only job is to run the monitor loop.
+    // It should not handle program termination. If an error occurs here
+    // that it cannot handle (like in getTelemetry), it should let the
+    // exception propagate up to main.
+
+    auto& manager = miner::device::DeviceManager::instance();
+
+    fmt::print("--- Found {} CUDA Device(s) ---\n", manager.getDevices().size());
+
+    for (const auto& device : manager.getDevices()) {
+        const auto& info = device->getInfo();
+        fmt::print("[GPU {}] Name: {}, PCI Bus ID: {}, Memory: {:.2f} GB\n",
+                   info.id, info.name, info.pci_bus_id,
+                   static_cast<double>(info.memory_total_bytes) / (1024 * 1024 * 1024));
+    }
+    fmt::print("----------------------------------\n\n");
+
+    // Telemetry loop
+    while (true) {
+        fmt::print("--- Telemetry Update @ {} ---\n", std::chrono::system_clock::now());
+        for (auto& device : manager.getDevices()) {
+            try {
+                const auto telemetry = device->getTelemetry();
+                fmt::print(
+                    "[GPU {}] Temp: {}C | Power: {}W | Fan: {}% | Core Clock: {} MHz | Mem Clock: {} MHz | Util: {}%\n",
+                    device->getInfo().id, telemetry.temperature_c, telemetry.power_usage_watts,
+                    telemetry.fan_speed, telemetry.sm_clock_mhz, telemetry.mem_clock_mhz,
+                    telemetry.utilization_gpu);
+            } catch (const miner::DeviceException& e) {
+                // Handle non-critical errors locally if possible, e.g., log and continue.
+                fmt::print(stderr, "[GPU {}] Error fetching telemetry: {}\n", device->getInfo().id, e.what());
+            }
+        }
+        fmt::print("\n");
+        std::this_thread::sleep_for(std::chrono::seconds(5));
+    }
+}
 
 int main(int argc, char** argv) {
     print_welcome_message();
@@ -50,15 +85,9 @@ int main(int argc, char** argv) {
     fmt::print("  - Pass:      {}\n", std::string(config.pass.length(), '*')); // Obfuscate password in log
 
     try {
-        miner::DeviceManager device_manager;
-        device_manager.list_devices();
-
-        // Future steps:
-        // 1. Select device(s) based on config.
-        // 2. Load algorithm plugin.
-        // 3. Initialize Stratum client.
-        // 4. Start mining loop.
-
+        auto& manager = miner::device::DeviceManager::instance();
+        manager.initialize();
+        run_telemetry_monitor();
     } catch (const std::runtime_error& e) {
         fmt::print(stderr, fg(fmt::color::red), "A critical CUDA error occurred: {}\n", e.what());
         return 1;
