@@ -39,14 +39,14 @@ void run_telemetry_monitor() {
 
     for (const auto& device : manager.getDevices()) {
         const auto& info = device->getInfo();
-        fmt::print("[GPU {}] Name: {}, PCI Bus ID: {}, Memory: {:.2f} GB\n",
-                   info.id, info.name, info.pci_bus_id,
+        fmt::print("[GPU {}] Name: {}, Memory: {:.2f} GB\n",
+                   info.id, info.name,
                    static_cast<double>(info.memory_total_bytes) / (1024 * 1024 * 1024));
     }
     fmt::print("----------------------------------\n\n");
 
     // Telemetry loop
-    while (true) {
+    // while (true) {
         fmt::print("--- Telemetry Update @ {} ---\n", std::chrono::system_clock::now());
         for (auto& device : manager.getDevices()) {
             try {
@@ -63,7 +63,7 @@ void run_telemetry_monitor() {
         }
         fmt::print("\n");
         std::this_thread::sleep_for(std::chrono::seconds(5));
-    }
+    // }
 }
 
 int main(int argc, char** argv) {
