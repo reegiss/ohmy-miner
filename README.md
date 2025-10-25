@@ -1,4 +1,4 @@
-# QtcMiner
+# OhMyMiner
 
 An open-source framework for building high-performance miners using C++ and CUDA.
 
@@ -6,7 +6,7 @@ An open-source framework for building high-performance miners using C++ and CUDA
 
 ## 📖 About The Project
 
-QtcMiner was born as a learning project to master the integration of C++ with the NVIDIA CUDA platform, following open-source software development best practices. The goal is to create a solid, optimized, and maintainable foundation for developing mining algorithms that demand high performance on GPUs.
+OhMyMiner was born as a learning project to master the integration of C++ with the NVIDIA CUDA platform, following open-source software development best practices. The goal is to create a solid, optimized, and maintainable foundation for developing mining algorithms that demand high performance on GPUs.
 
 ### ✨ Features
 
@@ -21,7 +21,7 @@ Follow these instructions to get a copy of the project up and running on your lo
 
 ### ✅ Prerequisites
 
-To build and run `qtcminer`, you will need the following software installed:
+To build and run `OhMyMiner`, you will need the following software installed:
 
 * **NVIDIA Driver:** A version compatible with your GPU and the CUDA Toolkit.
 * **CUDA Toolkit:** Version 12.0 or later.
@@ -35,8 +35,8 @@ Follow the steps below in your terminal:
 
 1.  **Clone the repo:**
     ```bash
-    git clone [https://github.com/your-username/qtcminer.git](https://github.com/your-username/qtcminer.git)
-    cd qtcminer
+    git clone [https://github.com/your-username/OhMyMiner.git](https://github.com/your-username/OhMyMiner.git)
+    cd OhMyMiner
     ```
 
 2.  **Create and enter the build directory:**
@@ -53,11 +53,11 @@ Follow the steps below in your terminal:
     ```bash
     make
     ```
-    The `qtcminer` executable will be generated inside the `build/` directory.
+    The `OhMyMiner` executable will be generated inside the `build/` directory.
 
 ## 💻 Usage
 
 After compilation, you can run the program directly:
 
 ```bash
-./qtcminer
+./OhMyMiner
