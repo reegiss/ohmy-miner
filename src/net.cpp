@@ -26,21 +26,21 @@ using json = nlohmann::json;
 void from_json(const json& j, Job& job) {
     // A notificação vem como um array de parâmetros
     const auto& params = j.at("params");
-    if (!params.is_array() |
-
-| params.size() < 9) {
+    if (!params.is_array() || params.size() < 9) {
         throw std::invalid_argument("Invalid 'mining.notify' parameters");
     }
 
-    job.job_id = params;
-    job.prev_hash = params[1];
-    job.coinb1 = params[2];
-    job.coinb2 = params[3];
-    job.merkle_branch = params.[4]get<std::vector<std::string>>();
-    job.version = params[5];
-    job.nbits = params[6];
-    job.ntime = params[7];
-    job.clean_jobs = params[8];
+    // Params layout (per Stratum mining.notify):
+    // [ job_id, prev_hash, coinb1, coinb2, merkle_branch, version, nbits, ntime, clean_jobs ]
+    job.job_id = params[0].get<std::string>();
+    job.prev_hash = params[1].get<std::string>();
+    job.coinb1 = params[2].get<std::string>();
+    job.coinb2 = params[3].get<std::string>();
+    job.merkle_branch = params[4].get<std::vector<std::string>>();
+    job.version = params[5].get<std::string>();
+    job.nbits = params[6].get<std::string>();
+    job.ntime = params[7].get<std::string>();
+    job.clean_jobs = params[8].get<bool>();
 }
 
 // Serializa a submissão 'mining.submit'
@@ -223,7 +223,7 @@ void StratumClient::Impl::do_read() {
         });
 }
 
-void StratumClient::Impl::on_read(const asio::error_code& ec, std::size_t bytes_transferred) {
+void StratumClient::Impl::on_read(const asio::error_code& ec, std::size_t /*bytes_transferred*/) {
     if (ec) {
         if (ec!= asio::error::eof) {
             fmt::print(stderr, "Net error: Read failed: {}\n", ec.message());

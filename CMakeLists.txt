@@ -48,19 +48,16 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/chriskohlhoff/asio.git
   GIT_TAG asio-1-28-1
 )
-# Popula a dependência para garantir que os ficheiros estão no disco
-FetchContent_GetProperties(asio)
-if(NOT asio_POPULATED)
-  FetchContent_Populate(asio)
-endif()
+# Make Asio available (ensures headers/targets are configured like other deps)
+FetchContent_MakeAvailable(asio)
 
 # Find the CUDA toolkit, which includes NVML
 find_package(CUDAToolkit REQUIRED)
 
 # --- CORREÇÃO FINAL: Usar o comando global 'include_directories' ---
-# Esta abordagem força a inclusão do caminho para todos os targets,
-# contornando o problema com 'target_include_directories'.
-include_directories("${asio_SOURCE_DIR}/include")
+# A dependência Asio é colocada em `${asio_SOURCE_DIR}/asio`; ensure we
+# include the proper subfolder so `#include <asio.hpp>` resolves.
+include_directories("${asio_SOURCE_DIR}/asio/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
 
 
@@ -80,7 +77,6 @@ target_link_libraries(ohmy-miner PRIVATE
   fmt::fmt
   nlohmann_json::nlohmann_json
   cxxopts::cxxopts
-  asio
   CUDA::cudart
   CUDA::nvml
   Threads::Threads
