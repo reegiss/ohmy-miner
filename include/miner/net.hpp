@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <functional>
 #include <stdexcept>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -102,6 +103,9 @@ public:
      */
     virtual void onConnectionStateChanged(std::function<void(ConnectionState)> callback) = 0;
 };
+
+// Factory for creating a Stratum client implementation.
+std::unique_ptr<IStratumClient> createStratumClient();
 
 } // namespace net
 } // namespace miner

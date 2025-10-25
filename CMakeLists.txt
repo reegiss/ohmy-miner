@@ -67,6 +67,7 @@ add_executable(ohmy-miner
   src/device.cpp
   src/config.cpp
   src/net.cpp
+  src/stratum_v1.cpp
 )
 
 # A definição ASIO_STANDALONE ainda é necessária

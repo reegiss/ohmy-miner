@@ -5,6 +5,7 @@
 
 #include <asio.hpp>
 #include <nlohmann/json.hpp>
+#include "miner/stratum_v1.hpp"
 
 #include <deque>
 #include <iostream>
@@ -17,40 +18,8 @@
 
 namespace miner::net {
 
-// --- JSON Serialization/Deserialization for Stratum types ---
-
-// Helper para nlohmann::json
+// Use Stratum v1 helper for JSON construction/parsing
 using json = nlohmann::json;
-
-// Deserializa a notificação 'mining.notify'
-void from_json(const json& j, Job& job) {
-    // A notificação vem como um array de parâmetros
-    const auto& params = j.at("params");
-    if (!params.is_array() || params.size() < 9) {
-        throw std::invalid_argument("Invalid 'mining.notify' parameters");
-    }
-
-    // Params layout (per Stratum mining.notify):
-    // [ job_id, prev_hash, coinb1, coinb2, merkle_branch, version, nbits, ntime, clean_jobs ]
-    job.job_id = params[0].get<std::string>();
-    job.prev_hash = params[1].get<std::string>();
-    job.coinb1 = params[2].get<std::string>();
-    job.coinb2 = params[3].get<std::string>();
-    job.merkle_branch = params[4].get<std::vector<std::string>>();
-    job.version = params[5].get<std::string>();
-    job.nbits = params[6].get<std::string>();
-    job.ntime = params[7].get<std::string>();
-    job.clean_jobs = params[8].get<bool>();
-}
-
-// Serializa a submissão 'mining.submit'
-void to_json(json& j, const Share& share) {
-    j = json{
-        {"id", 1}, // ID da submissão, pode ser um contador
-        {"method", "mining.submit"},
-        {"params", {share.job_id, share.extranonce2, share.ntime, share.nonce}}
-    };
-}
 
 
 // --- PIMPL Implementation for StratumClient ---
@@ -165,7 +134,7 @@ void StratumClient::Impl::disconnect() {
 }
 
 void StratumClient::Impl::submit(const Share& share) {
-    json j = share;
+    auto j = miner::stratum_v1::StratumV1::make_submit(share);
     do_write(j.dump() + "\n");
 }
 
@@ -201,18 +170,12 @@ void StratumClient::Impl::on_connect(const asio::error_code& ec) {
 }
 
 void StratumClient::Impl::do_auth() {
-    json subscribe = {
-        {"id", 1},
-        {"method", "mining.subscribe"},
-        {"params", {"ohmy-miner/0.1.0"}}
-    };
+    auto subscribe = miner::stratum_v1::StratumV1::make_subscribe("ohmy-miner/0.1.0");
+    fmt::print("[Net] Sending subscribe: {}\n", subscribe.dump());
     do_write(subscribe.dump() + "\n");
 
-    json authorize = {
-        {"id", 2},
-        {"method", "mining.authorize"},
-        {"params", {user_, pass_}}
-    };
+    auto authorize = miner::stratum_v1::StratumV1::make_authorize(user_, pass_);
+    fmt::print("[Net] Sending authorize: {}\n", authorize.dump());
     do_write(authorize.dump() + "\n");
 }
 
@@ -247,11 +210,54 @@ void StratumClient::Impl::on_read(const asio::error_code& ec, std::size_t /*byte
 void StratumClient::Impl::process_message(const std::string& msg) {
     try {
         json j = json::parse(msg);
-        if (j.contains("method") && j["method"] == "mining.notify") {
-            Job job = j.get<Job>();
+        // Server-side error field
+        if (j.contains("error") && !j["error"].is_null()) {
+            fmt::print(stderr, "[Net] Server error: {}\n", j["error"].dump());
+        }
+
+        // Notification (mining.notify)
+        if (miner::stratum_v1::StratumV1::is_notify(j)) {
+            auto job = miner::stratum_v1::StratumV1::parse_notify(j);
             if (on_new_job_cb) {
                 on_new_job_cb(job);
             }
+            return;
+        }
+
+        // Responses to RPC calls (subscribe/authorize/submit)
+        if (j.contains("id")) {
+            int id = -1;
+            try { id = j["id"].get<int>(); } catch(...) {}
+
+            if (j.contains("result")) {
+                const auto& res = j["result"];
+                if (id == 2) {
+                    // mining.authorize -> boolean expected
+                    bool ok = false;
+                    if (res.is_boolean()) ok = res.get<bool>();
+                    else if (res.is_array() && !res.empty()) ok = true;
+                    fmt::print("[Net] Authorize result: {}\n", ok ? "OK" : "FAILED");
+                    if (!ok) {
+                        set_state(ConnectionState::AuthenticationFailed);
+                    } else {
+                        set_state(ConnectionState::Connected);
+                    }
+                } else if (id == 1) {
+                    // mining.subscribe -> often returns array with extranonce1, extranonce2_size
+                    fmt::print("[Net] Subscribe result: {}\n", res.dump());
+                    try {
+                        if (res.is_array() && res.size() >= 2) {
+                            fmt::print("[Net] Subscribe details: extranonce1={}, extranonce2_size={}\n",
+                                       res[1].dump(), res.size() > 2 ? res[2].dump() : std::string("n/a"));
+                        }
+                    } catch (...) {}
+                } else {
+                    fmt::print("[Net] RPC reply (id={}): {}\n", id, res.dump());
+                }
+            } else {
+                fmt::print("[Net] Message with id={} has no result: {}\n", id, msg);
+            }
+            return;
         }
         // TODO: Handle other messages like mining.set_difficulty, responses to submit, etc.
     } catch (const json::exception& e) {
@@ -264,6 +270,7 @@ void StratumClient::Impl::do_write(const std::string& msg) {
         bool write_in_progress =!write_queue_.empty();
         write_queue_.push_back(msg);
         if (!write_in_progress) {
+            fmt::print("[Net] -> write queued (len={})\n", write_queue_.front().size());
             asio::async_write(socket_, asio::buffer(write_queue_.front()),
                 [this](const asio::error_code& ec, std::size_t bytes_transferred) {
                     on_write(ec, bytes_transferred);

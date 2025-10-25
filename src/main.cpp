@@ -23,6 +23,10 @@
 
 #include "miner/Config.hpp"
 
+#include "miner/net.hpp"
+#include <future>
+#include <atomic>
+
 #include "miner/IAlgorithm.hpp"
 
 void print_welcome_message();
@@ -45,8 +49,8 @@ void run_telemetry_monitor() {
     }
     fmt::print("----------------------------------\n\n");
 
-    // Telemetry loop
-    // while (true) {
+    // Telemetry loop (runs until process exit)
+    while (true) {
         fmt::print("--- Telemetry Update @ {} ---\n", std::chrono::system_clock::now());
         for (auto& device : manager.getDevices()) {
             try {
@@ -63,7 +67,7 @@ void run_telemetry_monitor() {
         }
         fmt::print("\n");
         std::this_thread::sleep_for(std::chrono::seconds(5));
-    // }
+    }
 }
 
 int main(int argc, char** argv) {
@@ -87,6 +91,79 @@ int main(int argc, char** argv) {
     try {
         auto& manager = miner::device::DeviceManager::instance();
         manager.initialize();
+        // Create and connect Stratum client using CLI config
+        auto client = miner::net::createStratumClient();
+
+        // Promise/future to observe authentication result (set by connection callback)
+        auto auth_promise = std::make_shared<std::promise<bool>>();
+        auto auth_future = auth_promise->get_future();
+        auto auth_done = std::make_shared<std::atomic<bool>>(false);
+
+        client->onConnectionStateChanged([auth_promise, auth_done](miner::net::ConnectionState s) {
+            const char* name = "Unknown";
+            switch (s) {
+                case miner::net::ConnectionState::Disconnected: name = "Disconnected"; break;
+                case miner::net::ConnectionState::Connecting: name = "Connecting"; break;
+                case miner::net::ConnectionState::Connected: name = "Connected"; break;
+                case miner::net::ConnectionState::AuthenticationFailed: name = "AuthenticationFailed"; break;
+                case miner::net::ConnectionState::Error: name = "Error"; break;
+            }
+            fmt::print("[Net] State: {}\n", name);
+
+            // Only set promise once
+            if (!auth_done->exchange(true)) {
+                if (s == miner::net::ConnectionState::Connected) {
+                    try { auth_promise->set_value(true); } catch(...) {}
+                } else if (s == miner::net::ConnectionState::AuthenticationFailed || s == miner::net::ConnectionState::Error) {
+                    try { auth_promise->set_value(false); } catch(...) {}
+                }
+            }
+        });
+
+        client->onNewJob([&manager](const miner::net::Job& job) {
+            fmt::print("[Net] New job: id={} prev_hash={} ntime={} clean={}\n",
+                       job.job_id, job.prev_hash, job.ntime, job.clean_jobs);
+            // In a full implementation we'd dispatch the job to algorithm/device queues here.
+        });
+
+        // Parse host:port from config.url (expect format host:port)
+        std::string host;
+        uint16_t port = 3333; // default
+        const auto pos = config.url.find(':');
+        if (pos != std::string::npos) {
+            host = config.url.substr(0, pos);
+            try {
+                port = static_cast<uint16_t>(std::stoi(config.url.substr(pos + 1)));
+            } catch (...) {
+                fmt::print(stderr, "Invalid port in URL: {}\n", config.url);
+            }
+        } else {
+            host = config.url;
+        }
+
+        fmt::print("[Net] Connecting to {}:{}\n", host, port);
+        client->connect(host, port, config.user, config.pass);
+
+        // Wait for authentication/connect result (timeout configurable via MINER_CONN_TIMEOUT, default 30s)
+        using namespace std::chrono_literals;
+        int timeout_seconds = 30;
+        const char* env_timeout = std::getenv("MINER_CONN_TIMEOUT");
+        if (env_timeout) {
+            try { timeout_seconds = std::stoi(env_timeout); } catch(...) { /* ignore */ }
+        }
+        auto status = auth_future.wait_for(std::chrono::seconds(timeout_seconds));
+        if (status == std::future_status::ready) {
+            bool ok = false;
+            try { ok = auth_future.get(); } catch(...) { ok = false; }
+            if (ok) {
+                fmt::print(fg(fmt::color::green), "[Net] Connected and authenticated with pool.\n");
+            } else {
+                fmt::print(fg(fmt::color::red), "[Net] Authentication with pool failed.\n");
+            }
+        } else {
+            fmt::print(fg(fmt::color::yellow), "[Net] Connection/auth timed out (no reply within 10s).\n");
+        }
+
         run_telemetry_monitor();
     } catch (const std::runtime_error& e) {
         fmt::print(stderr, fg(fmt::color::red), "A critical CUDA error occurred: {}\n", e.what());
