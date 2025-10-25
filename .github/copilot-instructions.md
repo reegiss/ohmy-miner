@@ -1,4 +1,4 @@
-## OhMyMiner — short Copilot notes
+## OhMyMiner — Copilot Instructions
 
 Core: C++20 + CUDA miner. Entry: `src/main.cpp`.
 
@@ -13,9 +13,33 @@ Key areas:
 
 Edit guidance:
 - Make small, focused edits. Avoid changing global CMake flags or device init/shutdown logic without tests.
+- For network/protocol changes, refer to `.github/PROMPTS/STRATUM.md`
 
 If you want this even shorter or focused (plugins, device internals, or examples), say which area.
 - Note: dependencies are fetched via CMake FetchContent (fmt, nlohmann_json, cxxopts, asio). Do not assume system packages.
+
+## Key Components
+
+### Stratum Client
+
+Located in `src/net.cpp`, responsible for:
+- Connect/disconnect to server
+- Send JSON-RPC messages
+- Receive and process messages
+- Invoke callbacks (e.g., `onJobReceived`, `onSetDifficulty`)
+- Manage I/O and reconnection threads
+
+Key methods:
+```cpp
+bool connect(const std::string& host, uint16_t port);
+void disconnect();
+void sendMessage(const nlohmann::json& msg);
+void setCredentials(const std::string& user, const std::string& password);
+void start();
+void stop();
+```
+
+For detailed Stratum implementation guidelines, see `.github/PROMPTS/STRATUM.md`.
 
 ---
 
