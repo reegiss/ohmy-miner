@@ -6,6 +6,7 @@
 #include "gpu_info.hpp"
 #include "pool_connection.hpp"
 #include "quantum_kernel.cuh"
+#include "quantum/simulator.hpp"
 #include "circuit_generator.hpp"
 #include "fixed_point.hpp"
 #include <fmt/core.h>
@@ -161,13 +162,21 @@ std::vector<uint8_t> build_block_header(const MiningJob& job,
     return header;
 }
 
-// Compute target = target1 / difficulty, where target1 = 0x0000ffff << 240 (QTC powLimit shape)
+// Convert 32-byte big-endian buffer to little-endian
+static std::array<uint8_t, 32> be32_to_le32(const std::array<uint8_t, 32>& be) {
+    std::array<uint8_t, 32> le{};
+    std::reverse_copy(be.begin(), be.end(), le.begin());
+    return le;
+}
+
+// Compute target = target1 / difficulty, where target1 = 0x00000000FFFF0000... (Bitcoin-style base)
 static std::array<uint8_t, 32> compute_target_from_difficulty(double difficulty) {
     // Represent big integers as base-2^32 little-endian limbs
-    // target1 limbs: only top limb (index 7) has 0x0000FFFF
+    // target1 limbs: limb[6] = 0xFFFF0000, limb[7] = 0x00000000, others 0
     std::array<uint32_t, 8> limbs{};
     limbs.fill(0);
-    limbs[7] = 0x0000FFFFu;
+    limbs[6] = 0xFFFF0000u;
+    limbs[7] = 0x00000000u;
 
     // Multiply by scale to preserve fractional difficulty precision
     const uint32_t SCALE = 1000000000u; // 1e9
@@ -216,9 +225,10 @@ static bool le256_less_equal(const std::array<uint8_t, 32>& a, const std::array<
     return true; // equal
 }
 
-bool check_difficulty(const std::array<uint8_t, 32>& hash, double difficulty) {
-    auto target = compute_target_from_difficulty(difficulty);
-    return le256_less_equal(hash, target);
+bool check_difficulty(const std::array<uint8_t, 32>& hash_be, double difficulty) {
+    auto target_le = compute_target_from_difficulty(difficulty);
+    auto hash_le = be32_to_le32(hash_be);
+    return le256_less_equal(hash_le, target_le);
 }
 
 int main(int argc, char* argv[]) {
@@ -373,16 +383,17 @@ int main(int argc, char* argv[]) {
         fmt::print(fg(fmt::color::cyan) | fmt::emphasis::bold,
             "=== Mining Started ===\n\n");
 
-        // Initialize quantum simulator
+        // Initialize quantum simulator (factory chooses best available backend)
         const int num_qubits = 16;  // QTC uses 16 qubits (not 8!)
-        QuantumSimulator quantum_sim(num_qubits);
+        auto simulator = ohmy::quantum::create_simulator(num_qubits);
         
         fmt::print(fg(fmt::color::green), 
             "✓ Quantum simulator initialized: {} qubits (QTC standard)\n", num_qubits);
+        fmt::print("  Backend: {}\n", simulator->backend_name());
         fmt::print(fg(fmt::color::yellow),
             "  State vector size: {} complex numbers ({:.2f} KB)\n\n",
-            quantum_sim.get_state_size(),
-            (quantum_sim.get_state_size() * sizeof(Complex)) / 1024.0);
+            simulator->get_state_size(),
+            (simulator->get_state_size() * sizeof(Complex)) / 1024.0);
 
         // Mining statistics tracking
         auto start_time = std::chrono::steady_clock::now();
@@ -427,20 +438,20 @@ int main(int argc, char* argv[]) {
                 auto circuit = CircuitGenerator::build_from_hash(initial_hash, num_qubits);
                 
                 // Step 3: Simulate quantum circuit
-                if (!quantum_sim.initialize_state()) {
+                if (!simulator->initialize_state()) {
                     fmt::print(fg(fmt::color::red), "Error: Failed to initialize quantum state\n");
                     should_exit = true;
                     break;
                 }
                 
-                if (!quantum_sim.apply_circuit(circuit)) {
+                if (!simulator->apply_circuit(circuit)) {
                     fmt::print(fg(fmt::color::red), "Error: Failed to apply quantum circuit\n");
                     should_exit = true;
                     break;
                 }
                 
                 std::vector<double> expectations;
-                if (!quantum_sim.measure(expectations)) {
+                if (!simulator->measure(expectations)) {
                     fmt::print(fg(fmt::color::red), "Error: Failed to measure quantum state\n");
                     should_exit = true;
                     break;
@@ -469,12 +480,13 @@ int main(int argc, char* argv[]) {
                 
                     // Debug: Log every 10000th hash to analyze distribution
                     if (total_hashes % 10000 == 0) {
-                        auto target = compute_target_from_difficulty(pool.get_difficulty());
+                        auto target_le = compute_target_from_difficulty(pool.get_difficulty());
+                        auto hash_le = be32_to_le32(qhash);
                         uint64_t hash_high = 0;
                         uint64_t target_high = 0;
                         for (int i = 31; i >= 24; --i) {
-                            hash_high = (hash_high << 8) | qhash[i];
-                            target_high = (target_high << 8) | target[i];
+                            hash_high = (hash_high << 8) | hash_le[i];
+                            target_high = (target_high << 8) | target_le[i];
                         }
                         fmt::print("[DEBUG] Hash #{}: high_bits=0x{:016x} target_high=0x{:016x} ({})\n",
                                    total_hashes.load(), hash_high, target_high,

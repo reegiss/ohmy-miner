@@ -63,6 +63,34 @@ find_package(OpenSSL REQUIRED)
 include_directories("${asio_SOURCE_DIR}/asio/include")
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
 
+# --- Optional: cuQuantum (custatevec) backend ---
+option(OHMY_WITH_CUQUANTUM "Enable cuQuantum custatevec backend" OFF)
+
+if(OHMY_WITH_CUQUANTUM)
+  # Try to locate cuQuantum via CUQUANTUM_ROOT or system paths
+  find_path(CUQUANTUM_INCLUDE_DIR
+    NAMES custatevec.h
+    HINTS $ENV{CUQUANTUM_ROOT}
+    PATH_SUFFIXES include
+  )
+
+  find_library(CUQUANTUM_custatevec_LIBRARY
+    NAMES custatevec
+    HINTS $ENV{CUQUANTUM_ROOT}
+    PATH_SUFFIXES lib lib64
+  )
+
+  if(CUQUANTUM_INCLUDE_DIR AND CUQUANTUM_custatevec_LIBRARY)
+    message(STATUS "cuQuantum found: ${CUQUANTUM_INCLUDE_DIR}")
+    add_compile_definitions(OHMY_WITH_CUQUANTUM)
+    include_directories(${CUQUANTUM_INCLUDE_DIR})
+    set(HAVE_CUQUANTUM TRUE)
+  else()
+    message(WARNING "OHMY_WITH_CUQUANTUM=ON but cuQuantum not found. Set CUQUANTUM_ROOT or install SDK. Proceeding without cuQuantum.")
+    set(HAVE_CUQUANTUM FALSE)
+  endif()
+endif()
+
 
 # --- Executable Target ---
 add_executable(ohmy-miner
@@ -72,6 +100,8 @@ add_executable(ohmy-miner
   src/circuit_generator.cpp
   src/fixed_point.cpp
   src/quantum_kernel.cu
+  src/quantum/simulator_factory.cpp
+  src/batched_quantum.cu
 )
 
 # A definição ASIO_STANDALONE ainda é necessária
@@ -88,6 +118,21 @@ target_link_libraries(ohmy-miner PRIVATE
   OpenSSL::Crypto
   Threads::Threads
 )
+
+# Link cuQuantum if available
+if(OHMY_WITH_CUQUANTUM AND HAVE_CUQUANTUM)
+  target_sources(ohmy-miner PRIVATE src/quantum/custatevec_backend.cpp)
+  target_link_libraries(ohmy-miner PRIVATE ${CUQUANTUM_custatevec_LIBRARY})
+endif()
+
+# --- Backend selection test ---
+add_executable(test_backend tests/test_backend.cpp src/quantum/simulator_factory.cpp src/quantum_kernel.cu)
+set_target_properties(test_backend PROPERTIES LINKER_LANGUAGE CUDA)
+target_link_libraries(test_backend PRIVATE fmt::fmt CUDA::cudart)
+if(OHMY_WITH_CUQUANTUM AND HAVE_CUQUANTUM)
+  target_sources(test_backend PRIVATE src/quantum/custatevec_backend.cpp)
+  target_link_libraries(test_backend PRIVATE ${CUQUANTUM_custatevec_LIBRARY})
+endif()
 
 # --- Test executable for quantum simulator ---
 add_executable(test_quantum tests/test_quantum.cu src/quantum_kernel.cu)
@@ -127,6 +172,54 @@ set_target_properties(test_fixed_point PROPERTIES
   LINKER_LANGUAGE CUDA
 )
 target_link_libraries(test_fixed_point PRIVATE
+  fmt::fmt
+  CUDA::cudart
+  OpenSSL::SSL
+  OpenSSL::Crypto
+)
+
+# --- Determinism test suite (CRITICAL for consensus) ---
+add_executable(test_determinism tests/test_determinism.cpp src/circuit_generator.cpp src/fixed_point.cpp src/quantum_kernel.cu)
+set_target_properties(test_determinism PROPERTIES
+  LINKER_LANGUAGE CUDA
+)
+target_link_libraries(test_determinism PRIVATE
+  fmt::fmt
+  CUDA::cudart
+  OpenSSL::SSL
+  OpenSSL::Crypto
+)
+
+# --- Gate fusion performance benchmark ---
+add_executable(benchmark_fusion tests/benchmark_fusion.cpp src/circuit_generator.cpp src/fixed_point.cpp src/quantum_kernel.cu)
+set_target_properties(benchmark_fusion PROPERTIES
+  LINKER_LANGUAGE CUDA
+)
+target_link_libraries(benchmark_fusion PRIVATE
+  fmt::fmt
+  CUDA::cudart
+  OpenSSL::SSL
+  OpenSSL::Crypto
+)
+
+# --- CNOT chain optimization benchmark ---
+add_executable(benchmark_cnot_chain tests/benchmark_cnot_chain.cpp src/circuit_generator.cpp src/fixed_point.cpp src/quantum_kernel.cu)
+set_target_properties(benchmark_cnot_chain PROPERTIES
+  LINKER_LANGUAGE CUDA
+)
+target_link_libraries(benchmark_cnot_chain PRIVATE
+  fmt::fmt
+  CUDA::cudart
+  OpenSSL::SSL
+  OpenSSL::Crypto
+)
+
+# --- Nonce batching benchmark ---
+add_executable(benchmark_nonce_batch tests/benchmark_nonce_batch.cpp src/circuit_generator.cpp src/fixed_point.cpp src/quantum_kernel.cu src/batched_quantum.cu)
+set_target_properties(benchmark_nonce_batch PROPERTIES
+  LINKER_LANGUAGE CUDA
+)
+target_link_libraries(benchmark_nonce_batch PRIVATE
   fmt::fmt
   CUDA::cudart
   OpenSSL::SSL
