@@ -177,6 +177,55 @@ json PoolConnection::receive_response([[maybe_unused]] int timeout_seconds) {
     }
 }
 
+json PoolConnection::wait_for_response_for_id(int expected_id, [[maybe_unused]] int timeout_seconds) {
+    // Keep reading lines until we find a JSON with matching id; notifications will be handled
+    while (connected_) {
+        try {
+            asio::error_code ec;
+            [[maybe_unused]] size_t bytes = asio::read_until(*socket_, receive_buffer_, '\n', ec);
+            if (ec) {
+                if (ec != asio::error::eof) {
+                    fmt::print(fg(fmt::color::red), "Receive error: {}\n", ec.message());
+                }
+                return json::object();
+            }
+
+            std::istream is(&receive_buffer_);
+            std::string line;
+            std::getline(is, line);
+            if (line.empty()) {
+                continue;
+            }
+
+            json msg = json::parse(line);
+            if (msg.contains("id") && !msg["id"].is_null()) {
+                int id_val = 0;
+                // Some pools use integer ids; be tolerant
+                try {
+                    id_val = msg["id"].get<int>();
+                } catch (...) {
+                    // Ignore non-integer ids for now
+                }
+                if (id_val == expected_id) {
+                    return msg;
+                }
+            }
+
+            // If it's a notification, handle it
+            if (msg.contains("method")) {
+                handle_message(line);
+            }
+
+        } catch (const json::parse_error& e) {
+            fmt::print(fg(fmt::color::red), "JSON parse error: {}\n", e.what());
+        } catch (const std::exception& e) {
+            fmt::print(fg(fmt::color::red), "Receive error: {}\n", e.what());
+            return json::object();
+        }
+    }
+    return json::object();
+}
+
 bool PoolConnection::subscribe() {
     if (!connected_) {
         fmt::print(fg(fmt::color::red), "Error: Not connected to pool\n");
@@ -185,10 +234,9 @@ bool PoolConnection::subscribe() {
 
     fmt::print(fg(fmt::color::cyan), "Subscribing to pool...\n");
 
-    // Send mining.subscribe
+    // Send mining.subscribe (Stratum v1-compatible minimal form)
     json params = json::array({
-        "ohmy-miner/0.1.0",  // User agent
-        nullptr              // Session ID (null for new session)
+        "ohmy-miner/0.1.0"  // User agent
     });
 
     int req_id = request_id_++;
@@ -197,7 +245,7 @@ bool PoolConnection::subscribe() {
     }
 
     // Wait for response
-    json response = receive_response();
+    json response = wait_for_response_for_id(req_id);
     
     if (response.empty() || !response.contains("result")) {
         fmt::print(fg(fmt::color::red), "Error: Invalid subscribe response\n");
@@ -233,6 +281,20 @@ bool PoolConnection::authorize() {
 
     fmt::print(fg(fmt::color::cyan), "Authorizing with pool...\n");
 
+    // Helpful pre-checks on username format (wallet.worker)
+    std::string wallet_part = username_;
+    if (auto pos = username_.find('.'); pos != std::string::npos) {
+        wallet_part = username_.substr(0, pos);
+    }
+    // Warn on common mistake: using Bitcoin bech32 address instead of QTC wallet
+    if (wallet_part.rfind("bc1", 0) == 0 || wallet_part.rfind("1", 0) == 0 || wallet_part.rfind("3", 0) == 0) {
+        fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold,
+            "Warning: Username '{}' looks like a Bitcoin address. Most QTC pools require a valid Qubitcoin (QTC) wallet address.\n",
+            wallet_part);
+        fmt::print(fg(fmt::color::yellow),
+            "Hint: Use 'WALLET.worker' as username and typically 'x' as password.\n");
+    }
+
     // Send mining.authorize
     json params = json::array({username_, password_});
 
@@ -242,7 +304,7 @@ bool PoolConnection::authorize() {
     }
 
     // Wait for response
-    json response = receive_response();
+    json response = wait_for_response_for_id(req_id);
     
     if (response.empty()) {
         fmt::print(fg(fmt::color::red), "Error: No authorization response\n");
@@ -250,18 +312,34 @@ bool PoolConnection::authorize() {
     }
 
     // Check if authorized
+    std::string pool_error_msg;
     if (response.contains("result") && response["result"].is_boolean()) {
         authorized_ = response["result"].get<bool>();
-    } else if (response.contains("error") && !response["error"].is_null()) {
-        fmt::print(fg(fmt::color::red) | fmt::emphasis::bold,
-            "Authorization failed: {}\n", response["error"].dump());
-        return false;
+        if (!authorized_) {
+            // Some pools return result=false without error object
+            pool_error_msg = "Pool returned result=false";
+        }
+    }
+    if (response.contains("error") && !response["error"].is_null()) {
+        pool_error_msg = response["error"].dump();
     }
 
     if (authorized_) {
         fmt::print(fg(fmt::color::green), "✓ Authorized as {}\n", username_);
     } else {
-        fmt::print(fg(fmt::color::red), "Authorization denied\n");
+        fmt::print(fg(fmt::color::red) | fmt::emphasis::bold, "Authorization denied\n");
+        if (!pool_error_msg.empty()) {
+            fmt::print(fg(fmt::color::red), "Pool error: {}\n", pool_error_msg);
+        }
+        // Also print raw response for troubleshooting
+        if (!response.is_null()) {
+            fmt::print(fg(fmt::color::gray), "Auth response: {}\n", response.dump());
+        }
+        fmt::print(fg(fmt::color::yellow),
+            "Checklist to fix authorization:\n"
+            "- Ensure the username is your QTC wallet address (not Bitcoin) optionally with .worker suffix.\n"
+            "- Keep password as 'x' unless the pool requires otherwise.\n"
+            "- Verify the pool URL/port and coin match (Qubitcoin).\n");
     }
 
     return authorized_;

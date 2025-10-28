@@ -174,6 +174,14 @@ private:
     json receive_response(int timeout_seconds = 10);
 
     /**
+     * @brief Wait until a response with matching id is received; handle notifications in between
+     * @param expected_id Request id to wait for
+     * @param timeout_seconds Timeout in seconds (best-effort)
+     * @return JSON response object for the matching id, or empty object on failure
+     */
+    json wait_for_response_for_id(int expected_id, int timeout_seconds = 10);
+
+    /**
      * @brief Handle incoming message from pool
      */
     void handle_message(const std::string& message);
