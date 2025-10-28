@@ -64,10 +64,6 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
 # --- Executable Target ---
 add_executable(ohmy-miner
   src/main.cpp
-  src/device.cpp
-  src/config.cpp
-  src/net.cpp
-  src/stratum_v1.cpp
 )
 
 # A definição ASIO_STANDALONE ainda é necessária
