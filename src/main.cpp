@@ -4,15 +4,31 @@
  */
 
 #include "gpu_info.hpp"
+#include "pool_connection.hpp"
 #include <fmt/core.h>
 #include <fmt/color.h>
 #include <cxxopts.hpp>
 #include <cuda_runtime.h>
+#include <asio.hpp>
 #include <iostream>
 #include <string>
 #include <vector>
+#include <thread>
+#include <csignal>
+#include <atomic>
 
 using namespace ohmy;
+
+// Global flag for graceful shutdown
+std::atomic<bool> should_exit{false};
+
+void signal_handler(int signal) {
+    if (signal == SIGINT || signal == SIGTERM) {
+        fmt::print(fg(fmt::color::yellow) | fmt::emphasis::bold,
+            "\n\nReceived shutdown signal. Exiting gracefully...\n");
+        should_exit = true;
+    }
+}
 
 void print_banner() {
     fmt::print(fg(fmt::color::cyan) | fmt::emphasis::bold,
@@ -118,11 +134,106 @@ int main(int argc, char* argv[]) {
         }
         fmt::print(fg(fmt::color::green), "✓ CUDA device {} initialized\n", device);
 
-        // TODO: Connect to mining pool
-        // TODO: Start mining loop
+        // Create ASIO io_context for async operations
+        asio::io_context io_context;
 
-        fmt::print(fg(fmt::color::yellow), 
-            "Mining initialization complete. Starting miner...\n");
+        // Create pool connection
+        fmt::print("\n");
+        PoolConnection pool(io_context, url, user, pass);
+
+        // Set up callbacks
+        pool.set_job_callback([](const MiningJob& job) {
+            fmt::print(fg(fmt::color::magenta),
+                "New job received: {} (Clean: {})\n",
+                job.job_id, job.clean_jobs ? "Yes" : "No");
+        });
+
+        pool.set_difficulty_callback([](double difficulty) {
+            fmt::print(fg(fmt::color::yellow),
+                "Difficulty updated: {}\n", difficulty);
+        });
+
+        pool.set_error_callback([](const std::string& error) {
+            fmt::print(fg(fmt::color::red) | fmt::emphasis::bold,
+                "Pool error: {}\n", error);
+        });
+
+        // Connect to pool
+        if (!pool.connect()) {
+            fmt::print(fg(fmt::color::red) | fmt::emphasis::bold,
+                "Fatal: Failed to connect to pool\n");
+            return 1;
+        }
+
+        // Subscribe to mining
+        if (!pool.subscribe()) {
+            fmt::print(fg(fmt::color::red) | fmt::emphasis::bold,
+                "Fatal: Failed to subscribe to pool\n");
+            return 1;
+        }
+
+        // Authorize with pool
+        if (!pool.authorize()) {
+            fmt::print(fg(fmt::color::red) | fmt::emphasis::bold,
+                "Fatal: Failed to authorize with pool\n");
+            return 1;
+        }
+
+        // Start async receive loop
+        pool.start_receive_loop();
+
+        // Setup signal handlers for graceful shutdown
+        std::signal(SIGINT, signal_handler);
+        std::signal(SIGTERM, signal_handler);
+
+        fmt::print("\n");
+        fmt::print(fg(fmt::color::green) | fmt::emphasis::bold,
+            "✓ Mining initialization complete!\n");
+        fmt::print(fg(fmt::color::yellow),
+            "Press Ctrl+C to stop mining\n\n");
+
+        // Run io_context in separate thread
+        std::thread io_thread([&io_context]() {
+            io_context.run();
+        });
+
+        // Main mining loop (placeholder)
+        fmt::print(fg(fmt::color::cyan) | fmt::emphasis::bold,
+            "=== Mining Started ===\n\n");
+
+        while (!should_exit && pool.is_connected()) {
+            // TODO: Implement actual mining loop
+            // - Get current job
+            // - Generate work
+            // - Execute quantum simulation
+            // - Check result against difficulty
+            // - Submit shares
+            
+            std::this_thread::sleep_for(std::chrono::seconds(1));
+            
+            // For now, just show we're alive
+            static int counter = 0;
+            if (++counter % 10 == 0) {
+                auto job = pool.get_current_job();
+                if (job.is_valid()) {
+                    fmt::print(fg(fmt::color::gray),
+                        "Mining... (Job: {}, Difficulty: {:.2f})\n",
+                        job.job_id, pool.get_difficulty());
+                }
+            }
+        }
+
+        fmt::print("\n");
+        fmt::print(fg(fmt::color::yellow), "Shutting down...\n");
+        
+        // Cleanup
+        pool.disconnect();
+        io_context.stop();
+        if (io_thread.joinable()) {
+            io_thread.join();
+        }
+
+        fmt::print(fg(fmt::color::green), "Shutdown complete. Goodbye!\n");
 
         return 0;
 
