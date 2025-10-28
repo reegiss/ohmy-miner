@@ -226,6 +226,24 @@ json PoolConnection::wait_for_response_for_id(int expected_id, [[maybe_unused]] 
     return json::object();
 }
 
+json PoolConnection::wait_for_response_id_async(int expected_id, int timeout_seconds) {
+    using namespace std::chrono;
+    std::unique_lock<std::mutex> lk(response_mutex_);
+    auto deadline = steady_clock::now() + seconds(timeout_seconds);
+    while (connected_) {
+        auto it = pending_responses_.find(expected_id);
+        if (it != pending_responses_.end()) {
+            json res = it->second;
+            pending_responses_.erase(it);
+            return res;
+        }
+        if (response_cv_.wait_until(lk, deadline) == std::cv_status::timeout) {
+            break;
+        }
+    }
+    return json::object();
+}
+
 bool PoolConnection::subscribe() {
     if (!connected_) {
         fmt::print(fg(fmt::color::red), "Error: Not connected to pool\n");
@@ -368,8 +386,8 @@ bool PoolConnection::submit_share(const std::string& job_id,
         return false;
     }
 
-    // Wait for response
-    json response = receive_response();
+    // Wait for response via async loop correlation
+    json response = wait_for_response_id_async(req_id);
     
     if (response.empty()) {
         fmt::print(fg(fmt::color::red), "Error: No submit response\n");
@@ -400,6 +418,18 @@ bool PoolConnection::submit_share(const std::string& job_id,
 void PoolConnection::handle_message(const std::string& message) {
     try {
         json msg = json::parse(message);
+
+        // First, if it's a response with an id, fulfill any waiter
+        if (msg.contains("id") && !msg["id"].is_null()) {
+            int id_val = 0;
+            try { id_val = msg["id"].get<int>(); } catch (...) { id_val = 0; }
+            if (id_val != 0) {
+                std::lock_guard<std::mutex> lk(response_mutex_);
+                pending_responses_[id_val] = msg;
+                response_cv_.notify_all();
+                return;
+            }
+        }
 
         // Check if it's a method call (notification)
         if (msg.contains("method")) {

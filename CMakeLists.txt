@@ -54,6 +54,9 @@ FetchContent_MakeAvailable(asio)
 # Find the CUDA toolkit, which includes NVML
 find_package(CUDAToolkit REQUIRED)
 
+# Find OpenSSL for SHA256
+find_package(OpenSSL REQUIRED)
+
 # --- CORREÇÃO FINAL: Usar o comando global 'include_directories' ---
 # A dependência Asio é colocada em `${asio_SOURCE_DIR}/asio`; ensure we
 # include the proper subfolder so `#include <asio.hpp>` resolves.
@@ -66,6 +69,9 @@ add_executable(ohmy-miner
   src/main.cpp
   src/gpu_info.cpp
   src/pool_connection.cpp
+  src/circuit_generator.cpp
+  src/fixed_point.cpp
+  src/quantum_kernel.cu
 )
 
 # A definição ASIO_STANDALONE ainda é necessária
@@ -78,5 +84,51 @@ target_link_libraries(ohmy-miner PRIVATE
   cxxopts::cxxopts
   CUDA::cudart
   CUDA::nvml
+  OpenSSL::SSL
+  OpenSSL::Crypto
   Threads::Threads
+)
+
+# --- Test executable for quantum simulator ---
+add_executable(test_quantum tests/test_quantum.cu src/quantum_kernel.cu)
+set_target_properties(test_quantum PROPERTIES
+  LINKER_LANGUAGE CUDA
+)
+target_link_libraries(test_quantum PRIVATE
+  fmt::fmt
+  CUDA::cudart
+)
+
+# --- Test executable for circuit generator ---
+add_executable(test_circuit tests/test_circuit.cpp src/circuit_generator.cpp src/quantum_kernel.cu)
+set_target_properties(test_circuit PROPERTIES
+  LINKER_LANGUAGE CUDA
+)
+target_link_libraries(test_circuit PRIVATE
+  fmt::fmt
+  CUDA::cudart
+)
+
+# --- Full pipeline test (hash -> circuit -> simulation) ---
+add_executable(test_pipeline tests/test_pipeline.cu src/circuit_generator.cpp src/quantum_kernel.cu)
+set_target_properties(test_pipeline PROPERTIES
+  LINKER_LANGUAGE CUDA
+)
+target_link_libraries(test_pipeline PRIVATE
+  fmt::fmt
+  CUDA::cudart
+  OpenSSL::SSL
+  OpenSSL::Crypto
+)
+
+# --- Fixed-point and qhash algorithm test ---
+add_executable(test_fixed_point tests/test_fixed_point.cu src/circuit_generator.cpp src/fixed_point.cpp src/quantum_kernel.cu)
+set_target_properties(test_fixed_point PROPERTIES
+  LINKER_LANGUAGE CUDA
+)
+target_link_libraries(test_fixed_point PRIVATE
+  fmt::fmt
+  CUDA::cudart
+  OpenSSL::SSL
+  OpenSSL::Crypto
 )

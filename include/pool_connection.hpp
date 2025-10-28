@@ -13,6 +13,8 @@
 #include <mutex>
 #include <nlohmann/json.hpp>
 #include <asio.hpp>
+#include <unordered_map>
+#include <condition_variable>
 
 namespace ohmy {
 
@@ -182,6 +184,14 @@ private:
     json wait_for_response_for_id(int expected_id, int timeout_seconds = 10);
 
     /**
+     * @brief Wait for a response with matching id that arrives via the async read loop
+     * @param expected_id Request id to wait for
+     * @param timeout_seconds Timeout in seconds
+     * @return JSON response object, or empty on timeout/error
+     */
+    json wait_for_response_id_async(int expected_id, int timeout_seconds = 10);
+
+    /**
      * @brief Handle incoming message from pool
      */
     void handle_message(const std::string& message);
@@ -243,6 +253,11 @@ private:
 
     // Thread safety
     std::mutex send_mutex_;
+
+    // Async response correlation
+    std::mutex response_mutex_;
+    std::condition_variable response_cv_;
+    std::unordered_map<int, json> pending_responses_;
 };
 
 } // namespace ohmy
