@@ -61,4 +61,46 @@ QuantumCircuit CircuitGenerator::build_from_hash(const std::array<uint8_t, 32>& 
     return circuit;
 }
 
+std::vector<QuantumCircuit> CircuitGenerator::build_from_hash_batch(
+    const std::vector<std::array<uint8_t, 32>>& hashes,
+    int num_qubits)
+{
+    const size_t batch_size = hashes.size();
+    std::vector<QuantumCircuit> circuits;
+    circuits.reserve(batch_size);
+
+    // Pre-allocate all circuits with same structure
+    for (size_t b = 0; b < batch_size; ++b) {
+        circuits.emplace_back(num_qubits);
+    }
+
+    // Vectorized angle extraction: process all hashes in parallel-friendly loops
+    // (compiler can auto-vectorize or we can later use OpenMP/SIMD)
+    
+    for (size_t b = 0; b < batch_size; ++b) {
+        const auto& hash = hashes[b];
+        auto& circuit = circuits[b];
+        
+        int nibble_idx = 0;
+        for (int layer = 0; layer < 2; ++layer) {
+            // RY layer
+            for (int q = 0; q < num_qubits; ++q) {
+                uint8_t n = extract_nibble_idx(hash, nibble_idx++);
+                double angle = nibble_to_angle_qhash(n);
+                circuit.add_gate(GateType::RY, q, angle);
+            }
+            // RZ layer
+            for (int q = 0; q < num_qubits; ++q) {
+                uint8_t n = extract_nibble_idx(hash, nibble_idx++);
+                double angle = nibble_to_angle_qhash(n);
+                circuit.add_gate(GateType::RZ, q, angle);
+            }
+            // CNOT chain (same for all batches)
+            add_cnot_chain(circuit, num_qubits);
+        }
+    }
+
+    return circuits;
+}
+
 } // namespace ohmy::quantum

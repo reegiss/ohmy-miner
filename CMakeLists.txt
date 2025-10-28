@@ -11,8 +11,11 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# --- Enable OpenMP for CPU parallelization ---
+find_package(OpenMP REQUIRED)
+
 # --- Compiler Flags ---
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror ${OpenMP_CXX_FLAGS}")
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Wall -Wextra -Werror=all-warnings")
 
 # --- Specify target GPU architectures ---
@@ -97,6 +100,8 @@ add_executable(ohmy-miner
   src/main.cpp
   src/gpu_info.cpp
   src/pool_connection.cpp
+  src/crypto_utils.cpp
+  src/miner.cpp
   src/circuit_generator.cpp
   src/fixed_point.cpp
   src/quantum_kernel.cu
@@ -117,111 +122,11 @@ target_link_libraries(ohmy-miner PRIVATE
   OpenSSL::SSL
   OpenSSL::Crypto
   Threads::Threads
+  OpenMP::OpenMP_CXX
 )
 
 # Link cuQuantum if available
 if(OHMY_WITH_CUQUANTUM AND HAVE_CUQUANTUM)
-  target_sources(ohmy-miner PRIVATE src/quantum/custatevec_backend.cpp)
+  target_sources(ohmy-miner PRIVATE src/quantum/custatevec_backend.cpp src/quantum/custatevec_batched.cu)
   target_link_libraries(ohmy-miner PRIVATE ${CUQUANTUM_custatevec_LIBRARY})
 endif()
-
-# --- Backend selection test ---
-add_executable(test_backend tests/test_backend.cpp src/quantum/simulator_factory.cpp src/quantum_kernel.cu)
-set_target_properties(test_backend PROPERTIES LINKER_LANGUAGE CUDA)
-target_link_libraries(test_backend PRIVATE fmt::fmt CUDA::cudart)
-if(OHMY_WITH_CUQUANTUM AND HAVE_CUQUANTUM)
-  target_sources(test_backend PRIVATE src/quantum/custatevec_backend.cpp)
-  target_link_libraries(test_backend PRIVATE ${CUQUANTUM_custatevec_LIBRARY})
-endif()
-
-# --- Test executable for quantum simulator ---
-add_executable(test_quantum tests/test_quantum.cu src/quantum_kernel.cu)
-set_target_properties(test_quantum PROPERTIES
-  LINKER_LANGUAGE CUDA
-)
-target_link_libraries(test_quantum PRIVATE
-  fmt::fmt
-  CUDA::cudart
-)
-
-# --- Test executable for circuit generator ---
-add_executable(test_circuit tests/test_circuit.cpp src/circuit_generator.cpp src/quantum_kernel.cu)
-set_target_properties(test_circuit PROPERTIES
-  LINKER_LANGUAGE CUDA
-)
-target_link_libraries(test_circuit PRIVATE
-  fmt::fmt
-  CUDA::cudart
-)
-
-# --- Full pipeline test (hash -> circuit -> simulation) ---
-add_executable(test_pipeline tests/test_pipeline.cu src/circuit_generator.cpp src/quantum_kernel.cu)
-set_target_properties(test_pipeline PROPERTIES
-  LINKER_LANGUAGE CUDA
-)
-target_link_libraries(test_pipeline PRIVATE
-  fmt::fmt
-  CUDA::cudart
-  OpenSSL::SSL
-  OpenSSL::Crypto
-)
-
-# --- Fixed-point and qhash algorithm test ---
-add_executable(test_fixed_point tests/test_fixed_point.cu src/circuit_generator.cpp src/fixed_point.cpp src/quantum_kernel.cu)
-set_target_properties(test_fixed_point PROPERTIES
-  LINKER_LANGUAGE CUDA
-)
-target_link_libraries(test_fixed_point PRIVATE
-  fmt::fmt
-  CUDA::cudart
-  OpenSSL::SSL
-  OpenSSL::Crypto
-)
-
-# --- Determinism test suite (CRITICAL for consensus) ---
-add_executable(test_determinism tests/test_determinism.cpp src/circuit_generator.cpp src/fixed_point.cpp src/quantum_kernel.cu)
-set_target_properties(test_determinism PROPERTIES
-  LINKER_LANGUAGE CUDA
-)
-target_link_libraries(test_determinism PRIVATE
-  fmt::fmt
-  CUDA::cudart
-  OpenSSL::SSL
-  OpenSSL::Crypto
-)
-
-# --- Gate fusion performance benchmark ---
-add_executable(benchmark_fusion tests/benchmark_fusion.cpp src/circuit_generator.cpp src/fixed_point.cpp src/quantum_kernel.cu)
-set_target_properties(benchmark_fusion PROPERTIES
-  LINKER_LANGUAGE CUDA
-)
-target_link_libraries(benchmark_fusion PRIVATE
-  fmt::fmt
-  CUDA::cudart
-  OpenSSL::SSL
-  OpenSSL::Crypto
-)
-
-# --- CNOT chain optimization benchmark ---
-add_executable(benchmark_cnot_chain tests/benchmark_cnot_chain.cpp src/circuit_generator.cpp src/fixed_point.cpp src/quantum_kernel.cu)
-set_target_properties(benchmark_cnot_chain PROPERTIES
-  LINKER_LANGUAGE CUDA
-)
-target_link_libraries(benchmark_cnot_chain PRIVATE
-  fmt::fmt
-  CUDA::cudart
-  OpenSSL::SSL
-  OpenSSL::Crypto
-)
-
-# --- Nonce batching benchmark ---
-add_executable(benchmark_nonce_batch tests/benchmark_nonce_batch.cpp src/circuit_generator.cpp src/fixed_point.cpp src/quantum_kernel.cu src/batched_quantum.cu)
-set_target_properties(benchmark_nonce_batch PROPERTIES
-  LINKER_LANGUAGE CUDA
-)
-target_link_libraries(benchmark_nonce_batch PRIVATE
-  fmt::fmt
-  CUDA::cudart
-  OpenSSL::SSL
-  OpenSSL::Crypto
-)

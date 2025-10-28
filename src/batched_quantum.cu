@@ -59,27 +59,31 @@ __global__ void apply_ry_gate_batched(
     if (idx >= state_size) return;
     
     Complex* state = states + batch_idx * state_size;
-    double angle = angles[batch_idx];
+    __shared__ double s_cos_half;
+    __shared__ double s_sin_half;
+    if (threadIdx.x == 0) {
+        double angle = angles[batch_idx];
+        s_cos_half = cos(angle / 2.0);
+        s_sin_half = sin(angle / 2.0);
+    }
+    __syncthreads();
     
     // Standard RY gate logic (same as non-batched)
     if ((idx & (1ULL << target_qubit)) != 0) return;
     
     size_t flipped_idx = idx | (1ULL << target_qubit);
     
-    double cos_half = cos(angle / 2.0);
-    double sin_half = sin(angle / 2.0);
-    
     Complex a0 = state[idx];
     Complex a1 = state[flipped_idx];
     
     state[idx] = cuCadd(
-        make_cuDoubleComplex(cos_half * cuCreal(a0), cos_half * cuCimag(a0)),
-        make_cuDoubleComplex(-sin_half * cuCreal(a1), -sin_half * cuCimag(a1))
+        make_cuDoubleComplex(s_cos_half * cuCreal(a0), s_cos_half * cuCimag(a0)),
+        make_cuDoubleComplex(-s_sin_half * cuCreal(a1), -s_sin_half * cuCimag(a1))
     );
     
     state[flipped_idx] = cuCadd(
-        make_cuDoubleComplex(sin_half * cuCreal(a0), sin_half * cuCimag(a0)),
-        make_cuDoubleComplex(cos_half * cuCreal(a1), cos_half * cuCimag(a1))
+        make_cuDoubleComplex(s_sin_half * cuCreal(a0), s_sin_half * cuCimag(a0)),
+        make_cuDoubleComplex(s_cos_half * cuCreal(a1), s_cos_half * cuCimag(a1))
     );
 }
 
@@ -101,11 +105,18 @@ __global__ void apply_rz_gate_batched(
     if (idx >= state_size) return;
     
     Complex* state = states + batch_idx * state_size;
-    double angle = angles[batch_idx];
-    
-    double phase = ((idx & (1ULL << target_qubit)) != 0) ? angle / 2.0 : -angle / 2.0;
-    
-    Complex rotation = make_cuDoubleComplex(cos(phase), sin(phase));
+    __shared__ double s_cos_half;
+    __shared__ double s_sin_half;
+    if (threadIdx.x == 0) {
+        double angle = angles[batch_idx];
+        s_cos_half = cos(angle / 2.0);
+        s_sin_half = sin(angle / 2.0);
+    }
+    __syncthreads();
+
+    // phase = +/- angle/2 -> cos(phase)=cos(angle/2); sin(phase)=sign * sin(angle/2)
+    int sign = ((idx & (1ULL << target_qubit)) != 0) ? 1 : -1;
+    Complex rotation = make_cuDoubleComplex(s_cos_half, sign * s_sin_half);
     state[idx] = cuCmul(state[idx], rotation);
 }
 
@@ -369,7 +380,7 @@ BatchedQuantumSimulator::~BatchedQuantumSimulator() {
 }
 
 bool BatchedQuantumSimulator::initialize_states() {
-    int block_size = 256;
+    int block_size = 512;
     int num_blocks = (state_size_ + block_size - 1) / block_size;
     
     dim3 grid(num_blocks, batch_size_);
@@ -400,7 +411,7 @@ bool BatchedQuantumSimulator::apply_circuits_optimized(
     // For now, use simple approach: apply gates one at a time across batch
     // Future optimization: group gates and apply in parallel
     
-    int block_size = 256;
+    int block_size = 512;
     int num_blocks = (state_size_ + block_size - 1) / block_size;
     dim3 grid(num_blocks, batch_size_);
     dim3 block(block_size);

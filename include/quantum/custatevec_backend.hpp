@@ -11,9 +11,8 @@
 // Only declare if cuQuantum support is enabled
 #if defined(OHMY_WITH_CUQUANTUM)
 
-// Forward-declare custatevec types to avoid forcing include at header site
-struct custatevecHandle_t_;
-using custatevecHandle_t = custatevecHandle_t_*;
+// Use the official cuQuantum header to obtain the correct handle typedef
+#include <custatevec.h>
 
 namespace ohmy {
 namespace quantum {

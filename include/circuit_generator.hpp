@@ -30,6 +30,20 @@ public:
      */
     static QuantumCircuit build_from_hash(const std::array<uint8_t, 32>& hash, int num_qubits);
     
+    /**
+     * Build multiple circuits from a batch of hashes (optimized for batched mining).
+     * 
+     * Vectorized version that processes all hashes at once, reducing per-nonce overhead.
+     * Fills angle arrays directly to avoid intermediate QuantumCircuit allocation.
+     * 
+     * @param hashes Vector of 32-byte SHA256 hashes
+     * @param num_qubits Number of qubits per circuit
+     * @return Vector of QuantumCircuits (same structure, different angles)
+     */
+    static std::vector<QuantumCircuit> build_from_hash_batch(
+        const std::vector<std::array<uint8_t, 32>>& hashes,
+        int num_qubits);
+    
 private:
     // Extract nibble by index [0..63] from 32-byte hash (big-endian nibble order)
     static inline uint8_t extract_nibble_idx(const std::array<uint8_t, 32>& hash, int nibble_idx);
