@@ -64,6 +64,7 @@ include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
 # --- Executable Target ---
 add_executable(ohmy-miner
   src/main.cpp
+  src/gpu_info.cpp
 )
 
 # A definição ASIO_STANDALONE ainda é necessária
