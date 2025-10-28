@@ -253,6 +253,13 @@ __global__ void measure_expectations_batched(
 // BatchedQuantumSimulator Implementation
 // ============================================================================
 
+namespace {
+// Toggle for experimental fused RY+RZ layer kernel. Disabled by default
+// because it may reduce performance on some GPUs and complicates memory
+// access patterns. Enable only after benchmarking.
+constexpr bool kEnableLayerFusion = false;
+}
+
 BatchedQuantumSimulator::BatchedQuantumSimulator(int num_qubits, int batch_size)
     : num_qubits_(num_qubits)
     , batch_size_(batch_size)
@@ -280,6 +287,67 @@ BatchedQuantumSimulator::BatchedQuantumSimulator(int num_qubits, int batch_size)
         throw std::runtime_error("GPU memory allocation failed");
     }
     
+    // Allocate reusable angles buffer (per-gate)
+    err = cudaMalloc(&d_angles_, batch_size_ * sizeof(double));
+    if (err != cudaSuccess) {
+        cudaFree(d_states_);
+        cudaFree(d_expectations_);
+        fmt::print(fg(fmt::color::red),
+            "Failed to allocate angles buffer: {}\n", cudaGetErrorString(err));
+        throw std::runtime_error("GPU memory allocation failed");
+    }
+
+    // Allocate persistent fused-layer angle buffers [batch_size_ * num_qubits_]
+    err = cudaMalloc(&d_layer_ry_, batch_size_ * num_qubits_ * sizeof(double));
+    if (err != cudaSuccess) {
+        cudaFree(d_states_);
+        cudaFree(d_expectations_);
+        cudaFree(d_angles_);
+        fmt::print(fg(fmt::color::red),
+            "Failed to allocate fused RY buffer: {}\n", cudaGetErrorString(err));
+        throw std::runtime_error("GPU memory allocation failed");
+    }
+
+    err = cudaMalloc(&d_layer_rz_, batch_size_ * num_qubits_ * sizeof(double));
+    if (err != cudaSuccess) {
+        cudaFree(d_states_);
+        cudaFree(d_expectations_);
+        cudaFree(d_angles_);
+        cudaFree(d_layer_ry_);
+        fmt::print(fg(fmt::color::red),
+            "Failed to allocate fused RZ buffer: {}\n", cudaGetErrorString(err));
+        throw std::runtime_error("GPU memory allocation failed");
+    }
+
+    // Allocate host pinned buffers
+    err = cudaHostAlloc(&h_gate_angles_, batch_size_ * sizeof(double), cudaHostAllocDefault);
+    if (err != cudaSuccess) {
+        fmt::print(fg(fmt::color::red),
+            "Failed to allocate pinned host gate angles: {}\n", cudaGetErrorString(err));
+        throw std::runtime_error("Pinned host allocation failed");
+    }
+
+    err = cudaHostAlloc(&h_layer_ry_, batch_size_ * num_qubits_ * sizeof(double), cudaHostAllocDefault);
+    if (err != cudaSuccess) {
+        fmt::print(fg(fmt::color::red),
+            "Failed to allocate pinned host layer RY: {}\n", cudaGetErrorString(err));
+        throw std::runtime_error("Pinned host allocation failed");
+    }
+
+    err = cudaHostAlloc(&h_layer_rz_, batch_size_ * num_qubits_ * sizeof(double), cudaHostAllocDefault);
+    if (err != cudaSuccess) {
+        fmt::print(fg(fmt::color::red),
+            "Failed to allocate pinned host layer RZ: {}\n", cudaGetErrorString(err));
+        throw std::runtime_error("Pinned host allocation failed");
+    }
+
+    err = cudaHostAlloc(&h_expectations_pinned_, batch_size_ * num_qubits_ * sizeof(double), cudaHostAllocDefault);
+    if (err != cudaSuccess) {
+        fmt::print(fg(fmt::color::red),
+            "Failed to allocate pinned host expectations: {}\n", cudaGetErrorString(err));
+        throw std::runtime_error("Pinned host allocation failed");
+    }
+
     fmt::print("Batched quantum simulator initialized: {} qubits, batch size = {}\n",
         num_qubits_, batch_size_);
     fmt::print("  GPU memory: {} MB states + {} KB expectations = {} MB total\n",
@@ -291,6 +359,13 @@ BatchedQuantumSimulator::BatchedQuantumSimulator(int num_qubits, int batch_size)
 BatchedQuantumSimulator::~BatchedQuantumSimulator() {
     if (d_states_) cudaFree(d_states_);
     if (d_expectations_) cudaFree(d_expectations_);
+    if (d_angles_) cudaFree(d_angles_);
+    if (d_layer_ry_) cudaFree(d_layer_ry_);
+    if (d_layer_rz_) cudaFree(d_layer_rz_);
+    if (h_gate_angles_) cudaFreeHost(h_gate_angles_);
+    if (h_layer_ry_) cudaFreeHost(h_layer_ry_);
+    if (h_layer_rz_) cudaFreeHost(h_layer_rz_);
+    if (h_expectations_pinned_) cudaFreeHost(h_expectations_pinned_);
 }
 
 bool BatchedQuantumSimulator::initialize_states() {
@@ -300,7 +375,7 @@ bool BatchedQuantumSimulator::initialize_states() {
     dim3 grid(num_blocks, batch_size_);
     dim3 block(block_size);
     
-    initialize_states_batched<<<grid, block>>>(d_states_, batch_size_, state_size_);
+    initialize_states_batched<<<grid, block, 0, stream_>>>(d_states_, batch_size_, state_size_);
     
     cudaError_t err = cudaGetLastError();
     if (err != cudaSuccess) {
@@ -333,42 +408,80 @@ bool BatchedQuantumSimulator::apply_circuits_optimized(
     // Assume all circuits have same structure (QTC property)
     const auto& reference_circuit = circuits[0];
     
-    for (size_t gate_idx = 0; gate_idx < reference_circuit.gates.size(); gate_idx++) {
+    size_t gate_idx = 0;
+    const size_t total_gates = reference_circuit.gates.size();
+    
+    while (gate_idx < total_gates) {
+        // Try to fuse a layer: [RY over all qubits][RZ over all qubits]
+        bool can_fuse_layer = kEnableLayerFusion ? false : false; // default disabled
+        if (kEnableLayerFusion) {
+            can_fuse_layer = false;
+        }
+        if (gate_idx + (2 * num_qubits_) - 1 < total_gates) {
+            can_fuse_layer = true;
+            // Check first num_qubits_ are RY on distinct targets 0..num_qubits_-1
+            for (int q = 0; q < num_qubits_; ++q) {
+                const auto& g = reference_circuit.gates[gate_idx + q];
+                if (g.type != GateType::RY || g.target_qubit != q) { can_fuse_layer = false; break; }
+            }
+            // Check next num_qubits_ are RZ on same targets
+        if (can_fuse_layer) {
+                for (int q = 0; q < num_qubits_; ++q) {
+                    const auto& g = reference_circuit.gates[gate_idx + num_qubits_ + q];
+                    if (g.type != GateType::RZ || g.target_qubit != q) { can_fuse_layer = false; break; }
+                }
+            }
+        }
+
+    if (can_fuse_layer) {
+            // Build [batch][num_qubits] ry and rz angle matrices in pinned host buffers
+            for (int b = 0; b < batch_size_; ++b) {
+                for (int q = 0; q < num_qubits_; ++q) {
+                    h_layer_ry_[b * num_qubits_ + q] = circuits[b].gates[gate_idx + q].angle;
+                    h_layer_rz_[b * num_qubits_ + q] = circuits[b].gates[gate_idx + num_qubits_ + q].angle;
+                }
+            }
+
+            // Copy layer angles into persistent device buffers (async, pinned host)
+            cudaMemcpyAsync(d_layer_ry_, h_layer_ry_, batch_size_ * num_qubits_ * sizeof(double), cudaMemcpyHostToDevice, stream_);
+            cudaMemcpyAsync(d_layer_rz_, h_layer_rz_, batch_size_ * num_qubits_ * sizeof(double), cudaMemcpyHostToDevice, stream_);
+
+            apply_fused_ry_rz_layer_batched<<<grid, block, 0, stream_>>>(
+                d_states_, batch_size_, d_layer_ry_, d_layer_rz_, num_qubits_);
+
+            cudaError_t err = cudaGetLastError();
+            if (err != cudaSuccess) {
+                fmt::print(fg(fmt::color::red),
+                    "Batched fused layer error at gates [{}..{}]: {}\n",
+                    gate_idx, gate_idx + 2 * num_qubits_ - 1, cudaGetErrorString(err));
+                return false;
+            }
+
+            gate_idx += 2 * num_qubits_;
+            continue;
+        }
+
+        // No fusion possible: apply single gate across batch
         const auto& gate = reference_circuit.gates[gate_idx];
-        
-        // Extract angles for this gate from all circuits
-        std::vector<double> angles(batch_size_);
-        for (int b = 0; b < batch_size_; b++) {
-            angles[b] = circuits[b].gates[gate_idx].angle;
+        if (gate.type == GateType::CNOT) {
+            apply_cnot_gate_batched<<<grid, block, 0, stream_>>>(
+                d_states_, batch_size_, gate.control_qubit,
+                gate.target_qubit, num_qubits_);
+        } else {
+            for (int b = 0; b < batch_size_; b++) {
+                h_gate_angles_[b] = circuits[b].gates[gate_idx].angle;
+            }
+            cudaMemcpyAsync(d_angles_, h_gate_angles_, batch_size_ * sizeof(double),
+                            cudaMemcpyHostToDevice, stream_);
+            if (gate.type == GateType::RY) {
+                apply_ry_gate_batched<<<grid, block, 0, stream_>>>(
+                    d_states_, batch_size_, gate.target_qubit, d_angles_, num_qubits_);
+            } else if (gate.type == GateType::RZ) {
+                apply_rz_gate_batched<<<grid, block, 0, stream_>>>(
+                    d_states_, batch_size_, gate.target_qubit, d_angles_, num_qubits_);
+            }
         }
-        
-        // Upload angles to GPU
-        double* d_angles = nullptr;
-        cudaMalloc(&d_angles, batch_size_ * sizeof(double));
-        cudaMemcpy(d_angles, angles.data(), batch_size_ * sizeof(double),
-                   cudaMemcpyHostToDevice);
-        
-        // Apply gate to all states in batch
-        switch (gate.type) {
-            case GateType::RY:
-                apply_ry_gate_batched<<<grid, block>>>(
-                    d_states_, batch_size_, gate.target_qubit, d_angles, num_qubits_);
-                break;
-            case GateType::RZ:
-                apply_rz_gate_batched<<<grid, block>>>(
-                    d_states_, batch_size_, gate.target_qubit, d_angles, num_qubits_);
-                break;
-            case GateType::CNOT:
-                apply_cnot_gate_batched<<<grid, block>>>(
-                    d_states_, batch_size_, gate.control_qubit,
-                    gate.target_qubit, num_qubits_);
-                break;
-            default:
-                break;
-        }
-        
-        cudaFree(d_angles);
-        
+
         cudaError_t err = cudaGetLastError();
         if (err != cudaSuccess) {
             fmt::print(fg(fmt::color::red),
@@ -376,9 +489,10 @@ bool BatchedQuantumSimulator::apply_circuits_optimized(
                 gate_idx, cudaGetErrorString(err));
             return false;
         }
+        ++gate_idx;
     }
-    
-    cudaDeviceSynchronize();
+
+    // Don't block here; let measurement synchronize
     return true;
 }
 
@@ -391,7 +505,7 @@ bool BatchedQuantumSimulator::measure_all(
     }
     
     // Zero out device expectations
-    cudaMemset(d_expectations_, 0, batch_size_ * num_qubits_ * sizeof(double));
+    cudaMemsetAsync(d_expectations_, 0, batch_size_ * num_qubits_ * sizeof(double), stream_);
     
     int block_size = 256;
     int num_blocks = (state_size_ + block_size - 1) / block_size;
@@ -399,7 +513,7 @@ bool BatchedQuantumSimulator::measure_all(
     dim3 grid(num_blocks, num_qubits_, batch_size_);
     dim3 block(block_size);
     
-    measure_expectations_batched<<<grid, block>>>(
+    measure_expectations_batched<<<grid, block, 0, stream_>>>(
         d_states_, batch_size_, d_expectations_, num_qubits_);
     
     cudaError_t err = cudaGetLastError();
@@ -409,16 +523,17 @@ bool BatchedQuantumSimulator::measure_all(
         return false;
     }
     
-    // Copy results to host
-    std::vector<double> flat_expectations(batch_size_ * num_qubits_);
-    cudaMemcpy(flat_expectations.data(), d_expectations_,
-               batch_size_ * num_qubits_ * sizeof(double),
-               cudaMemcpyDeviceToHost);
+    // Copy results to pinned host buffer (keeps same stream ordering; kernels finish before copy)
+    cudaMemcpyAsync(h_expectations_pinned_, d_expectations_,
+                    batch_size_ * num_qubits_ * sizeof(double),
+                    cudaMemcpyDeviceToHost, stream_);
+    // Wait for the copy to complete before reshaping
+    cudaStreamSynchronize(stream_);
     
     // Reshape to 2D
     for (int b = 0; b < batch_size_; b++) {
         for (int q = 0; q < num_qubits_; q++) {
-            expectations[b][q] = flat_expectations[b * num_qubits_ + q];
+            expectations[b][q] = h_expectations_pinned_[b * num_qubits_ + q];
         }
     }
     

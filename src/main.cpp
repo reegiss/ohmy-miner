@@ -7,6 +7,7 @@
 #include "pool_connection.hpp"
 #include "quantum_kernel.cuh"
 #include "quantum/simulator.hpp"
+#include "batched_quantum.cuh"
 #include "circuit_generator.hpp"
 #include "fixed_point.hpp"
 #include <fmt/core.h>
@@ -250,6 +251,8 @@ int main(int argc, char* argv[]) {
                 cxxopts::value<int>()->default_value("1"))
             ("d,device", "CUDA device ID", 
                 cxxopts::value<int>()->default_value("0"))
+            ("b,batch", "Batch size (>=1). Uses batched simulator when >1 (custom backend only)",
+                cxxopts::value<int>()->default_value("1"))
             ("h,help", "Print usage information");
 
         auto result = options.parse(argc, argv);
@@ -279,8 +282,10 @@ int main(int argc, char* argv[]) {
         auto url = result["url"].as<std::string>();
         auto user = result["user"].as<std::string>();
         auto pass = result["pass"].as<std::string>();
-        auto threads = result["threads"].as<int>();
-        auto device = result["device"].as<int>();
+    auto threads = result["threads"].as<int>();
+    auto device = result["device"].as<int>();
+    int batch_size = result["batch"].as<int>();
+    if (batch_size < 1) batch_size = 1;
 
         // Detect available GPUs
         std::vector<GPUInfo> gpus;
@@ -295,6 +300,18 @@ int main(int argc, char* argv[]) {
             return 1;
         }
 
+        // Auto-tune batch size if user did not specify --batch
+        if (result.count("batch") == 0) {
+            // For 16 qubits, each state has 2^16 complex amps; Complex is cuDoubleComplex (16B)
+            const size_t state_bytes = (1ULL << 16) * sizeof(Complex);
+            // Use only a fraction of free memory to stay safe (25%)
+            const double mem_budget = gpus[device].free_memory * 0.25;
+            int recommended = static_cast<int>(mem_budget / static_cast<double>(state_bytes));
+            if (recommended < 1) recommended = 1;
+            if (recommended > 512) recommended = 512; // cap to avoid huge batches by default
+            batch_size = recommended;
+        }
+
         // Display configuration
         fmt::print(fg(fmt::color::magenta) | fmt::emphasis::bold, 
             "=== Mining Configuration ===\n");
@@ -304,6 +321,7 @@ int main(int argc, char* argv[]) {
         fmt::print("Password:     {}\n", pass);
         fmt::print("Threads:      {}\n", threads);
         fmt::print("CUDA Device:  {}\n", device);
+        fmt::print("Batch size:   {}\n", batch_size);
         fmt::print(fg(fmt::color::magenta) | fmt::emphasis::bold, 
             "============================\n\n");
 
@@ -395,6 +413,25 @@ int main(int argc, char* argv[]) {
             simulator->get_state_size(),
             (simulator->get_state_size() * sizeof(Complex)) / 1024.0);
 
+        // Prepare batched simulator if requested and backend is custom
+        std::unique_ptr<BatchedQuantumSimulator> batched_sim;
+        const bool can_batch = (batch_size > 1) && (std::string(simulator->backend_name()) == "custom");
+        if (can_batch) {
+            batched_sim = std::make_unique<BatchedQuantumSimulator>(num_qubits, batch_size);
+            // Optional: use a dedicated stream for batched compute
+            cudaStream_t stream{};
+            if (cudaStreamCreate(&stream) == cudaSuccess) {
+                batched_sim->set_stream(stream);
+            }
+            fmt::print(fg(fmt::color::green),
+                "✓ Batched simulator ready: batch={} (GPU memory ~{:.2f} MB)\n\n",
+                batch_size, batched_sim->get_memory_usage() / (1024.0 * 1024.0));
+        } else if (batch_size > 1) {
+            fmt::print(fg(fmt::color::yellow),
+                "Note: Batch>1 requested but backend '{}' does not support batching yet. Proceeding without batching.\n\n",
+                simulator->backend_name());
+        }
+
         // Mining statistics tracking
         auto start_time = std::chrono::steady_clock::now();
         auto last_report_time = start_time;
@@ -409,146 +446,220 @@ int main(int argc, char* argv[]) {
                 continue;
             }
             
-            // Generate nonce range for this iteration
+            // Choose a work quantum (how many nonces to process this outer loop)
             uint32_t nonce_start = total_hashes.load();
-            uint32_t nonce_batch = 1000;  // Process 1000 nonces per batch
+            uint32_t nonce_batch = static_cast<uint32_t>(std::max(1, batch_size));
             
             // Get extra_nonce1 from pool
             std::string extra_nonce1 = pool.get_extra_nonce1();
             
-            for (uint32_t nonce = nonce_start; nonce < nonce_start + nonce_batch && !should_exit; nonce++) {
-                // Generate extra_nonce2 with correct width from pool
-                int en2_size = pool.get_extra_nonce2_size();
-                if (en2_size <= 0) en2_size = 4; // default to 4 bytes if unknown
-                uint64_t en2_mask = (en2_size >= 8) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << (en2_size * 8)) - 1ULL);
-                uint64_t en2_val = static_cast<uint64_t>(nonce) & en2_mask;
-                std::stringstream extra_nonce2_ss;
-                extra_nonce2_ss << std::hex << std::setw(en2_size * 2) << std::setfill('0') 
-                               << en2_val;
-                std::string extra_nonce2 = extra_nonce2_ss.str();
-                
-                // Step 1: Build real block header from job data
-                auto block_header_bytes = build_block_header(job, nonce, extra_nonce1, extra_nonce2);
-                
-                // Step 2: SHA256 hash of block header
-                std::array<uint8_t, 32> initial_hash;
-                SHA256(block_header_bytes.data(), block_header_bytes.size(), initial_hash.data());
-                
-                // Step 2: Generate quantum circuit from hash
-                auto circuit = CircuitGenerator::build_from_hash(initial_hash, num_qubits);
-                
-                // Step 3: Simulate quantum circuit
-                if (!simulator->initialize_state()) {
-                    fmt::print(fg(fmt::color::red), "Error: Failed to initialize quantum state\n");
+            if (can_batch) {
+                // Batched path with duplo-buffer simples (CPU prepara próximo lote enquanto GPU calcula o atual)
+                struct PreparedBatch {
+                    uint32_t nonce_start{0};
+                    std::vector<QuantumCircuit> circuits;
+                    std::vector<std::array<uint8_t, 32>> initial_hashes;
+                    std::vector<std::string> extra_nonce2_vec;
+                } cur, next;
+
+                auto prepare_batch = [&](PreparedBatch& out, uint32_t start_nonce, const MiningJob& jb, const std::string& en1){
+                    out.nonce_start = start_nonce;
+                    out.circuits.assign(batch_size, QuantumCircuit(num_qubits));
+                    out.initial_hashes.assign(batch_size, {});
+                    out.extra_nonce2_vec.assign(batch_size, {});
+                    int en2_size_local = pool.get_extra_nonce2_size();
+                    if (en2_size_local <= 0) en2_size_local = 4;
+                    uint64_t en2_mask_local = (en2_size_local >= 8) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << (en2_size_local * 8)) - 1ULL);
+                    for (int i = 0; i < batch_size; ++i) {
+                        uint32_t n = start_nonce + static_cast<uint32_t>(i);
+                        uint64_t en2_val = static_cast<uint64_t>(n) & en2_mask_local;
+                        std::stringstream ss;
+                        ss << std::hex << std::setw(en2_size_local * 2) << std::setfill('0') << en2_val;
+                        out.extra_nonce2_vec[i] = ss.str();
+                        auto header = build_block_header(jb, n, en1, out.extra_nonce2_vec[i]);
+                        SHA256(header.data(), header.size(), out.initial_hashes[i].data());
+                        out.circuits[i] = CircuitGenerator::build_from_hash(out.initial_hashes[i], num_qubits);
+                    }
+                };
+
+                static std::string last_job_id;
+                static bool has_cur = false;
+                static PreparedBatch cur_cached, next_cached;
+
+                if (!has_cur || last_job_id != job.job_id) {
+                    // Reset pipeline for new job
+                    prepare_batch(cur_cached, nonce_start, job, extra_nonce1);
+                    has_cur = true;
+                    last_job_id = job.job_id;
+                }
+
+                // Launch compute for current batch
+                if (!batched_sim->initialize_states()) {
+                    fmt::print(fg(fmt::color::red), "Error: Failed to initialize batched states\n");
                     should_exit = true;
                     break;
                 }
-                
-                if (!simulator->apply_circuit(circuit)) {
-                    fmt::print(fg(fmt::color::red), "Error: Failed to apply quantum circuit\n");
+                if (!batched_sim->apply_circuits_optimized(cur_cached.circuits)) {
+                    fmt::print(fg(fmt::color::red), "Error: Failed to apply batched circuits\n");
                     should_exit = true;
                     break;
                 }
-                
-                std::vector<double> expectations;
-                if (!simulator->measure(expectations)) {
-                    fmt::print(fg(fmt::color::red), "Error: Failed to measure quantum state\n");
+
+                // Enquanto GPU calcula, prepare o próximo lote no CPU
+                prepare_batch(next_cached, cur_cached.nonce_start + static_cast<uint32_t>(batch_size), job, extra_nonce1);
+
+                // Medir (sincroniza no final) e copiar resultados
+                std::vector<std::vector<double>> expectations_batch;
+                if (!batched_sim->measure_all(expectations_batch)) {
+                    fmt::print(fg(fmt::color::red), "Error: Failed to measure batched states\n");
                     should_exit = true;
                     break;
                 }
-                
-                // Step 4: Compute final qhash (fixed-point → SHA256)
-                auto qhash = QHashProcessor::compute_qhash(initial_hash, expectations);
-                
-                    // Debug first hash
-                    if (total_hashes == 0) {
-                        fmt::print("\n[FIRST HASH DEBUG]\n");
-                        fmt::print("Initial SHA256: ");
-                        for (int i = 0; i < 32; i++) fmt::print("{:02x}", initial_hash[i]);
-                        fmt::print("\nQuantum expectations (first 4 of {}):\n", expectations.size());
-                        for (size_t i = 0; i < std::min(size_t(4), expectations.size()); i++) {
-                            fmt::print("  exp[{}] = {:.6f}\n", i, expectations[i]);
+
+                // Process results
+                for (int i = 0; i < batch_size && !should_exit; ++i) {
+                    auto qhash = QHashProcessor::compute_qhash(cur_cached.initial_hashes[i], expectations_batch[i]);
+
+                    // (removed verbose first-hash debug dump)
+
+                    total_hashes++;
+                    hashes_since_report++;
+
+                    double difficulty = pool.get_difficulty();
+                    if (check_difficulty(qhash, difficulty)) {
+                        shares_found++;
+                        uint32_t n = cur_cached.nonce_start + static_cast<uint32_t>(i);
+                        fmt::print(fg(fmt::color::green) | fmt::emphasis::bold,
+                            "\n✓ SHARE FOUND! Nonce: {}, Hash: {}...\n",
+                            n, bytes_to_hex(qhash).substr(0, 16));
+
+                        std::stringstream nonce_hex;
+                        nonce_hex << std::hex << std::setw(8) << std::setfill('0') << n;
+                        std::string ntime_hex = job.ntime;
+
+                        if (pool.submit_share(job.job_id, nonce_hex.str(), ntime_hex, cur_cached.extra_nonce2_vec[i])) {
+                            shares_accepted++;
+                            fmt::print(fg(fmt::color::green), "  Share submitted successfully\n\n");
+                        } else {
+                            shares_rejected++;
+                            fmt::print(fg(fmt::color::red), "  Share submission failed\n\n");
                         }
-                        fmt::print("Final qhash: ");
-                        for (int i = 0; i < 32; i++) fmt::print("{:02x}", qhash[i]);
-                        fmt::print("\n\n");
-                    }
-                
-                // Update hash counter
-                total_hashes++;
-                hashes_since_report++;
-                
-                    // Debug: Log every 10000th hash to analyze distribution
-                    if (total_hashes % 10000 == 0) {
-                        auto target_le = compute_target_from_difficulty(pool.get_difficulty());
-                        auto hash_le = be32_to_le32(qhash);
-                        uint64_t hash_high = 0;
-                        uint64_t target_high = 0;
-                        for (int i = 31; i >= 24; --i) {
-                            hash_high = (hash_high << 8) | hash_le[i];
-                            target_high = (target_high << 8) | target_le[i];
-                        }
-                        fmt::print("[DEBUG] Hash #{}: high_bits=0x{:016x} target_high=0x{:016x} ({})\n",
-                                   total_hashes.load(), hash_high, target_high,
-                                   (hash_high <= target_high ? "PASS" : "FAIL"));
-                    }
-                
-                // Step 5: Check against difficulty
-                double difficulty = pool.get_difficulty();
-                if (check_difficulty(qhash, difficulty)) {
-                    shares_found++;
-                    
-                    fmt::print(fg(fmt::color::green) | fmt::emphasis::bold,
-                        "\n✓ SHARE FOUND! Nonce: {}, Hash: {}...\n",
-                        nonce, bytes_to_hex(qhash).substr(0, 16));
-                    
-                    // Convert nonce to hex string for submission (8 hex chars = 4 bytes)
-                    std::stringstream nonce_hex;
-                    nonce_hex << std::hex << std::setw(8) << std::setfill('0') << nonce;
-                    
-                    // Use job-provided ntime to avoid server rejections
-                    std::string ntime_hex = job.ntime;
-                    
-                    // Submit share to pool (extra_nonce2 already generated above)
-                    if (pool.submit_share(job.job_id, nonce_hex.str(), ntime_hex, extra_nonce2)) {
-                        shares_accepted++;
-                        fmt::print(fg(fmt::color::green), "  Share submitted successfully\n\n");
-                    } else {
-                        shares_rejected++;
-                        fmt::print(fg(fmt::color::red), "  Share submission failed\n\n");
                     }
                 }
-                
-                // Periodic status report (every 5 seconds)
-                auto now = std::chrono::steady_clock::now();
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_report_time);
-                
-                if (elapsed.count() >= 5) {
-                    double hashrate = hashes_since_report / static_cast<double>(elapsed.count());
-                    auto total_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time);
-                    double cur_diff = pool.get_difficulty();
-                    double expected_sec_per_share = (4294967296.0 * cur_diff) / std::max(hashrate, 1e-9);
-                    int eta_h = static_cast<int>(expected_sec_per_share / 3600.0);
-                    int eta_m = static_cast<int>((expected_sec_per_share - eta_h * 3600) / 60);
-                    int eta_s = static_cast<int>(expected_sec_per_share) % 60;
+
+                // Avança o pipeline
+                cur_cached = std::move(next_cached);
+            } else {
+                // Single-nonce path
+                for (uint32_t nonce = nonce_start; nonce < nonce_start + nonce_batch && !should_exit; nonce++) {
+                    // Generate extra_nonce2 with correct width from pool
+                    int en2_size = pool.get_extra_nonce2_size();
+                    if (en2_size <= 0) en2_size = 4; // default to 4 bytes if unknown
+                    uint64_t en2_mask = (en2_size >= 8) ? 0xFFFFFFFFFFFFFFFFULL : ((1ULL << (en2_size * 8)) - 1ULL);
+                    uint64_t en2_val = static_cast<uint64_t>(nonce) & en2_mask;
+                    std::stringstream extra_nonce2_ss;
+                    extra_nonce2_ss << std::hex << std::setw(en2_size * 2) << std::setfill('0') 
+                                   << en2_val;
+                    std::string extra_nonce2 = extra_nonce2_ss.str();
                     
-                    fmt::print(fg(fmt::color::cyan),
-                        "[{:02d}:{:02d}:{:02d}] Hashrate: {:.2f} H/s | Total: {} | Shares: {} accepted, {} rejected | ETA@diff {:.2f}: ~{:02d}h{:02d}m{:02d}s\n",
-                        total_elapsed.count() / 3600,
-                        (total_elapsed.count() / 60) % 60,
-                        total_elapsed.count() % 60,
-                        hashrate,
-                        total_hashes.load(),
-                        shares_accepted.load(),
-                        shares_rejected.load(),
-                        cur_diff,
-                        eta_h, eta_m, eta_s);
+                    // Step 1: Build real block header from job data
+                    auto block_header_bytes = build_block_header(job, nonce, extra_nonce1, extra_nonce2);
                     
-                    last_report_time = now;
-                    hashes_since_report = 0;
+                    // Step 2: SHA256 hash of block header
+                    std::array<uint8_t, 32> initial_hash;
+                    SHA256(block_header_bytes.data(), block_header_bytes.size(), initial_hash.data());
+                    
+                    // Step 2: Generate quantum circuit from hash
+                    auto circuit = CircuitGenerator::build_from_hash(initial_hash, num_qubits);
+                    
+                    // Step 3: Simulate quantum circuit
+                    if (!simulator->initialize_state()) {
+                        fmt::print(fg(fmt::color::red), "Error: Failed to initialize quantum state\n");
+                        should_exit = true;
+                        break;
+                    }
+                    
+                    if (!simulator->apply_circuit(circuit)) {
+                        fmt::print(fg(fmt::color::red), "Error: Failed to apply quantum circuit\n");
+                        should_exit = true;
+                        break;
+                    }
+                    
+                    std::vector<double> expectations;
+                    if (!simulator->measure(expectations)) {
+                        fmt::print(fg(fmt::color::red), "Error: Failed to measure quantum state\n");
+                        should_exit = true;
+                        break;
+                    }
+                    
+                    // Step 4: Compute final qhash (fixed-point → SHA256)
+                    auto qhash = QHashProcessor::compute_qhash(initial_hash, expectations);
+                    
+                    // (removed verbose first-hash debug dump)
+                    
+                    // Update hash counter
+                    total_hashes++;
+                    hashes_since_report++;
+                    
+                    // Periodic status/debug as before handled below
+                    
+                    // Step 5: Check against difficulty
+                    double difficulty = pool.get_difficulty();
+                    if (check_difficulty(qhash, difficulty)) {
+                        shares_found++;
+                        
+                        fmt::print(fg(fmt::color::green) | fmt::emphasis::bold,
+                            "\n✓ SHARE FOUND! Nonce: {}, Hash: {}...\n",
+                            nonce, bytes_to_hex(qhash).substr(0, 16));
+                        
+                        // Convert nonce to hex string for submission (8 hex chars = 4 bytes)
+                        std::stringstream nonce_hex;
+                        nonce_hex << std::hex << std::setw(8) << std::setfill('0') << nonce;
+                        
+                        // Use job-provided ntime to avoid server rejections
+                        std::string ntime_hex = job.ntime;
+                        
+                        // Submit share to pool (extra_nonce2 already generated above)
+                        if (pool.submit_share(job.job_id, nonce_hex.str(), ntime_hex, extra_nonce2)) {
+                            shares_accepted++;
+                            fmt::print(fg(fmt::color::green), "  Share submitted successfully\n\n");
+                        } else {
+                            shares_rejected++;
+                            fmt::print(fg(fmt::color::red), "  Share submission failed\n\n");
+                        }
+                    }
                 }
             }
-        }
+
+            // Periodic status report (every 5 seconds)
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - last_report_time);
+
+            if (elapsed.count() >= 5) {
+                double hashrate = hashes_since_report / static_cast<double>(elapsed.count());
+                auto total_elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start_time);
+                double cur_diff = pool.get_difficulty();
+                double expected_sec_per_share = (4294967296.0 * cur_diff) / std::max(hashrate, 1e-9);
+                int eta_h = static_cast<int>(expected_sec_per_share / 3600.0);
+                int eta_m = static_cast<int>((expected_sec_per_share - eta_h * 3600) / 60);
+                int eta_s = static_cast<int>(expected_sec_per_share) % 60;
+
+                fmt::print(fg(fmt::color::cyan),
+                    "[{:02d}:{:02d}:{:02d}] Hashrate: {:.2f} H/s | Total: {} | Shares: {} accepted, {} rejected | ETA@diff {:.2f}: ~{:02d}h{:02d}m{:02d}s\n",
+                    total_elapsed.count() / 3600,
+                    (total_elapsed.count() / 60) % 60,
+                    total_elapsed.count() % 60,
+                    hashrate,
+                    total_hashes.load(),
+                    shares_accepted.load(),
+                    shares_rejected.load(),
+                    cur_diff,
+                    eta_h, eta_m, eta_s);
+
+                last_report_time = now;
+                hashes_since_report = 0;
+            }
+    }
 
         fmt::print("\n");
         fmt::print(fg(fmt::color::yellow), "Shutting down...\n");
@@ -558,6 +669,13 @@ int main(int argc, char* argv[]) {
         io_context.stop();
         if (io_thread.joinable()) {
             io_thread.join();
+        }
+
+        // Destroy stream if created
+        if (batched_sim) {
+            if (batched_sim->stream() != nullptr) {
+                cudaStreamDestroy(batched_sim->stream());
+            }
         }
 
         fmt::print(fg(fmt::color::green), "Shutdown complete. Goodbye!\n");

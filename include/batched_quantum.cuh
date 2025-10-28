@@ -100,6 +100,10 @@ public:
                batch_size_ * num_qubits_ * sizeof(double);
     }
 
+    // Optional: provide a CUDA stream to run kernels and copies
+    void set_stream(cudaStream_t stream) { stream_ = stream; }
+    cudaStream_t stream() const { return stream_; }
+
 private:
     int num_qubits_;
     int batch_size_;
@@ -110,6 +114,22 @@ private:
     
     // GPU memory: expectations for all states
     double* d_expectations_;  // [batch_size][num_qubits]
+
+    // Scratch buffer for per-gate angles (size = batch_size_)
+    double* d_angles_ {nullptr};
+
+    // Persistent buffers for fused layer angles [batch_size_ * num_qubits_]
+    double* d_layer_ry_ {nullptr};
+    double* d_layer_rz_ {nullptr};
+
+    // Execution stream (0 means default stream)
+    cudaStream_t stream_ {nullptr};
+
+    // Host pinned buffers to accelerate transfers
+    double* h_gate_angles_ {nullptr};               // [batch_size_]
+    double* h_layer_ry_ {nullptr};                  // [batch_size_ * num_qubits_]
+    double* h_layer_rz_ {nullptr};                  // [batch_size_ * num_qubits_]
+    double* h_expectations_pinned_ {nullptr};       // [batch_size_ * num_qubits_]
     
     // Disable copy
     BatchedQuantumSimulator(const BatchedQuantumSimulator&) = delete;
