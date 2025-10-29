@@ -17,9 +17,18 @@ uint8_t CircuitGenerator::extract_nibble_idx(const std::array<uint8_t, 32>& hash
     return high ? static_cast<uint8_t>((byte >> 4) & 0x0F) : static_cast<uint8_t>(byte & 0x0F);
 }
 
-double CircuitGenerator::nibble_to_angle_qhash(uint8_t nibble) {
-    // Reference: angle = -nibble * π/16
-    return -static_cast<double>(nibble) * (M_PI / 16.0);
+double CircuitGenerator::nibble_to_angle_qhash(uint8_t nibble, uint32_t nTime) {
+    // CRITICAL: Qubitcoin reference implementation temporal fork
+    // Reference formula: -(2 * nibble + temporal_flag) * π/32
+    // where temporal_flag = 1 if nTime >= 1758762000 (Aug 25, 2025), else 0
+    //
+    // Before fork: -(2*nibble + 0)*π/32 = -nibble*π/16
+    // After fork:  -(2*nibble + 1)*π/32 = -nibble*π/16 - π/32
+    //
+    // This ensures consensus compatibility with official Qubitcoin network
+    const int temporal_flag = (nTime >= 1758762000) ? 1 : 0;
+    const int adjusted_nibble = 2 * static_cast<int>(nibble) + temporal_flag;
+    return -static_cast<double>(adjusted_nibble) * (M_PI / 32.0);
 }
 
 void CircuitGenerator::add_cnot_chain(QuantumCircuit& circuit, int num_qubits) {
@@ -29,7 +38,7 @@ void CircuitGenerator::add_cnot_chain(QuantumCircuit& circuit, int num_qubits) {
     }
 }
 
-QuantumCircuit CircuitGenerator::build_from_hash(const std::array<uint8_t, 32>& hash, int num_qubits) {
+QuantumCircuit CircuitGenerator::build_from_hash(const std::array<uint8_t, 32>& hash, int num_qubits, uint32_t nTime) {
     QuantumCircuit circuit(num_qubits);
 
     // QTC reference qhash circuit:
@@ -38,20 +47,20 @@ QuantumCircuit CircuitGenerator::build_from_hash(const std::array<uint8_t, 32>& 
     //   - Apply RY(theta_y[q]) for each qubit q
     //   - Apply RZ(theta_z[q]) for each qubit q
     //   - Apply nearest-neighbor CNOT chain (0->1, 1->2, ..., n-2->n-1)
-    // where theta = -nibble * π/16, consuming exactly 64 nibbles.
+    // where theta = -(2*nibble + temporal_flag) * π/32, consuming exactly 64 nibbles.
 
     int nibble_idx = 0; // 0..63
     for (int layer = 0; layer < 2; ++layer) {
         // RY layer
         for (int q = 0; q < num_qubits; ++q) {
             uint8_t n = extract_nibble_idx(hash, nibble_idx++);
-            double angle = nibble_to_angle_qhash(n);
+            double angle = nibble_to_angle_qhash(n, nTime);
             circuit.add_gate(GateType::RY, q, angle);
         }
         // RZ layer
         for (int q = 0; q < num_qubits; ++q) {
             uint8_t n = extract_nibble_idx(hash, nibble_idx++);
-            double angle = nibble_to_angle_qhash(n);
+            double angle = nibble_to_angle_qhash(n, nTime);
             circuit.add_gate(GateType::RZ, q, angle);
         }
         // CNOT chain
@@ -63,7 +72,8 @@ QuantumCircuit CircuitGenerator::build_from_hash(const std::array<uint8_t, 32>& 
 
 std::vector<QuantumCircuit> CircuitGenerator::build_from_hash_batch(
     const std::vector<std::array<uint8_t, 32>>& hashes,
-    int num_qubits)
+    int num_qubits,
+    uint32_t nTime)
 {
     const size_t batch_size = hashes.size();
     std::vector<QuantumCircuit> circuits;
@@ -86,13 +96,13 @@ std::vector<QuantumCircuit> CircuitGenerator::build_from_hash_batch(
             // RY layer
             for (int q = 0; q < num_qubits; ++q) {
                 uint8_t n = extract_nibble_idx(hash, nibble_idx++);
-                double angle = nibble_to_angle_qhash(n);
+                double angle = nibble_to_angle_qhash(n, nTime);
                 circuit.add_gate(GateType::RY, q, angle);
             }
             // RZ layer
             for (int q = 0; q < num_qubits; ++q) {
                 uint8_t n = extract_nibble_idx(hash, nibble_idx++);
-                double angle = nibble_to_angle_qhash(n);
+                double angle = nibble_to_angle_qhash(n, nTime);
                 circuit.add_gate(GateType::RZ, q, angle);
             }
             // CNOT chain (same for all batches)

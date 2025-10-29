@@ -104,9 +104,8 @@ add_executable(ohmy-miner
   src/miner.cpp
   src/circuit_generator.cpp
   src/fixed_point.cpp
-  src/quantum_kernel.cu
-  src/quantum/simulator_factory.cpp
   src/batched_quantum.cu
+  src/monolithic_kernel.cu
 )
 
 # A definição ASIO_STANDALONE ainda é necessária

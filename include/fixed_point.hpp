@@ -86,11 +86,13 @@ public:
      * 
      * @param initial_hash SHA256 hash of block header (32 bytes)
      * @param expectations Quantum expectation values from simulation
+        * @param nTime Block timestamp (Unix time) for temporal fork handling
      * @return Final qhash result (32 bytes) using SHA256, not SHA3
      */
     static std::array<uint8_t, 32> compute_qhash(
         const std::array<uint8_t, 32>& initial_hash,
-        const std::vector<double>& expectations
+            const std::vector<double>& expectations,
+            uint32_t nTime
     );
     
 private:

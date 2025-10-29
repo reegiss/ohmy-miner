@@ -6,11 +6,16 @@
 #ifndef OHMY_MINER_BATCHED_QUANTUM_CUH
 #define OHMY_MINER_BATCHED_QUANTUM_CUH
 
-#include "quantum_kernel.cuh"
 #include <vector>
+#include <cuda_runtime.h>
+#include <cuComplex.h>
+#include "circuit_types.hpp"
 
 namespace ohmy {
 namespace quantum {
+
+// Type alias for CUDA complex numbers
+using Complex = cuFloatComplex;
 
 /**
  * @brief Batched quantum simulator for parallel nonce processing
@@ -43,7 +48,7 @@ namespace quantum {
  *       circuits[i] = create_qtc_circuit(angles[i]);
  *   }
  *   
- *   batch_sim.apply_circuits_optimized(circuits);
+ *   batch_sim.apply_circuits_monolithic(circuits);
  *   batch_sim.measure_all(expectations);  // expectations[64][16]
  */
 class BatchedQuantumSimulator {
@@ -66,15 +71,17 @@ public:
     bool initialize_states();
     
     /**
-     * @brief Apply circuits to all states in batch (OPTIMIZED)
+     * @brief Apply QTC circuits using MONOLITHIC kernel
      * 
-     * Processes batch_size circuits in parallel using 2D grid:
-     * - blockIdx.x: amplitude index within state vector
-     * - blockIdx.y: batch index (which nonce/circuit)
+     * Executes entire QTC circuit in ONE kernel launch:
+     * - Layer 0: RY[0..15] → RZ[0..15] → CNOT_chain
+     * - Layer 1: RY[0..15] → RZ[0..15] → CNOT_chain
      * 
-     * @param circuits Vector of circuits (size = batch_size)
+     * Expected performance: 100-500× faster than gate-by-gate
+     * 
+     * @param circuits Vector of QTC circuits (size = batch_size, 94 gates each)
      */
-    bool apply_circuits_optimized(const std::vector<QuantumCircuit>& circuits);
+    bool apply_circuits_monolithic(const std::vector<QuantumCircuit>& circuits);
     
     /**
      * @brief Measure all states in batch
@@ -119,6 +126,13 @@ private:
     double* d_angles_ {nullptr};
 
     // Persistent buffers for fused layer angles [batch_size_ * num_qubits_]
+    // Layer 0 and Layer 1 angles stored as FLOAT for GPU efficiency
+    float* d_ry_l0_ {nullptr};  // [batch_size_ * 16]
+    float* d_rz_l0_ {nullptr};  // [batch_size_ * 16]
+    float* d_ry_l1_ {nullptr};  // [batch_size_ * 16]
+    float* d_rz_l1_ {nullptr};  // [batch_size_ * 16]
+    
+    // Legacy double buffers (kept for compatibility)
     double* d_layer_ry_ {nullptr};
     double* d_layer_rz_ {nullptr};
 

@@ -57,14 +57,15 @@ bool BatchedCuQuantumSimulator::initialize_states() {
 bool BatchedCuQuantumSimulator::apply_circuits_optimized(const std::vector<QuantumCircuit>& circuits) {
     if ((int)circuits.size() != batch_size_) return false;
 
-    // For each gate position (assume same structure across circuits)
+    // Process gates with reduced synchronization for better performance
     const auto& ref = circuits[0];
     for (size_t gi = 0; gi < ref.gates.size(); ++gi) {
         const auto& g0 = ref.gates[gi];
-        // Dispatch across streams in stripes
+        
+        // Apply gates to all batch items without per-gate sync
         for (int b = 0; b < batch_size_; ++b) {
             const auto& g = circuits[b].gates[gi];
-            cudaStream_t stream = streams_[b % streams_.size()];
+            [[maybe_unused]] cudaStream_t stream = streams_[b % streams_.size()];
 
             custatevecStatus_t st = CUSTATEVEC_STATUS_SUCCESS;
             void* sv = (void*)((float2*)d_states_ + (size_t)b * state_size_);
@@ -118,15 +119,17 @@ bool BatchedCuQuantumSimulator::apply_circuits_optimized(const std::vector<Quant
             }
             if (st != CUSTATEVEC_STATUS_SUCCESS) return false;
         }
-        // Optional: we could cudaDeviceSynchronize here or rely on stream order; cuStateVec ops are synchronous w.r.t stream-less handle; keep it simple and sync per gate
-        if (cudaDeviceSynchronize() != cudaSuccess) return false;
+        // No per-gate sync - let custatevec manage stream ordering
     }
-    return true;
+    // Single sync at the end of all gates
+    return cudaDeviceSynchronize() == cudaSuccess;
 }
 
 bool BatchedCuQuantumSimulator::measure_all(std::vector<std::vector<double>>& expectations) {
     expectations.assign(batch_size_, std::vector<double>(num_qubits_, 0.0));
 
+    // Measure all states sequentially but without intermediate syncs
+    // (custatevec will queue the operations efficiently)
     for (int b = 0; b < batch_size_; ++b) {
         void* sv = (void*)((float2*)d_states_ + (size_t)b * state_size_);
         std::vector<custatevecPauli_t> paulis(num_qubits_, CUSTATEVEC_PAULI_Z);
@@ -142,7 +145,8 @@ bool BatchedCuQuantumSimulator::measure_all(std::vector<std::vector<double>>& ex
             &basisBits, &nBasisBits);
         if (st != CUSTATEVEC_STATUS_SUCCESS) return false;
     }
-    return true;
+    // Single sync at the end
+    return cudaDeviceSynchronize() == cudaSuccess;
 }
 
 }} // namespace

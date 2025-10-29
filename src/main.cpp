@@ -98,10 +98,10 @@ int main(int argc, char* argv[]) {
         auto url = result["url"].as<std::string>();
         auto user = result["user"].as<std::string>();
         auto pass = result["pass"].as<std::string>();
+        constexpr int batch_size = 256;  // Fixed batch size for optimal performance
 
-        // Use default device 0 and auto-detect batch size
+        // Use default device 0
         int device = 0;
-        int batch_size = 128;  // Default batch size
 
         // Detect available GPUs
         std::vector<GPUInfo> gpus;
@@ -124,7 +124,7 @@ int main(int argc, char* argv[]) {
         fmt::print("Username:     {}\n", user);
         fmt::print("Password:     {}\n", pass);
         fmt::print("CUDA Device:  {} (auto-selected)\n", device);
-        fmt::print("Batch size:   {} (auto-tuned)\n", batch_size);
+        fmt::print("Batch size:   {} (fixed)\n", batch_size);
         fmt::print(fg(fmt::color::magenta) | fmt::emphasis::bold, 
             "============================\n\n");
 

@@ -5,7 +5,7 @@
 
 #pragma once
 
-#include "quantum_kernel.cuh"
+#include "circuit_types.hpp"
 #include <array>
 #include <vector>
 #include <cstdint>
@@ -26,9 +26,10 @@ public:
      * 
      * @param hash 32-byte SHA256 hash (256 bits)
      * @param num_qubits Number of qubits in the circuit (typically 8-12)
+        * @param nTime Block timestamp (Unix time) for temporal fork handling
      * @return QuantumCircuit with parameterized gates
      */
-    static QuantumCircuit build_from_hash(const std::array<uint8_t, 32>& hash, int num_qubits);
+        static QuantumCircuit build_from_hash(const std::array<uint8_t, 32>& hash, int num_qubits, uint32_t nTime);
     
     /**
      * Build multiple circuits from a batch of hashes (optimized for batched mining).
@@ -38,18 +39,22 @@ public:
      * 
      * @param hashes Vector of 32-byte SHA256 hashes
      * @param num_qubits Number of qubits per circuit
+        * @param nTime Block timestamp (Unix time) for temporal fork handling
      * @return Vector of QuantumCircuits (same structure, different angles)
      */
     static std::vector<QuantumCircuit> build_from_hash_batch(
         const std::vector<std::array<uint8_t, 32>>& hashes,
-        int num_qubits);
+            int num_qubits,
+            uint32_t nTime);
     
 private:
     // Extract nibble by index [0..63] from 32-byte hash (big-endian nibble order)
     static inline uint8_t extract_nibble_idx(const std::array<uint8_t, 32>& hash, int nibble_idx);
 
-    // Map nibble (0..15) to angle = -nibble * pi/16.0
-    static inline double nibble_to_angle_qhash(uint8_t nibble);
+        // Map nibble (0..15) to angle with temporal fork handling
+        // Reference: -(2 * nibble + temporal_flag) * pi/32
+        // where temporal_flag = 1 if nTime >= 1758762000, else 0
+        static inline double nibble_to_angle_qhash(uint8_t nibble, uint32_t nTime);
 
     // Add nearest-neighbor CNOT chain: (0->1), (1->2), ..., (n-2->n-1)
     static void add_cnot_chain(QuantumCircuit& circuit, int num_qubits);

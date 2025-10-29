@@ -6,8 +6,9 @@
 #ifndef OHMY_MINER_QUANTUM_SIMULATOR_IFACE_HPP
 #define OHMY_MINER_QUANTUM_SIMULATOR_IFACE_HPP
 
-#include "quantum_kernel.cuh"
 #include <memory>
+#include <vector>
+#include "../circuit_types.hpp"
 
 namespace ohmy {
 namespace quantum {

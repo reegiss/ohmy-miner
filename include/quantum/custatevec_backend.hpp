@@ -13,6 +13,7 @@
 
 // Use the official cuQuantum header to obtain the correct handle typedef
 #include <custatevec.h>
+#include <cuComplex.h>
 
 namespace ohmy {
 namespace quantum {

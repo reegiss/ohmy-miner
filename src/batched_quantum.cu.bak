@@ -43,6 +43,180 @@ __global__ void initialize_states_batched(
 }
 
 /**
+ * @brief Batched RY gate
+ */
+__global__ void apply_ry_gate_batched(
+    Complex* states,
+    int batch_size,
+    int target_qubit,
+    const double* angles,  // [batch_size] - one angle per batch
+    int num_qubits
+) {
+    int batch_idx = blockIdx.y;
+    if (batch_idx >= batch_size) return;
+    
+    size_t state_size = 1ULL << num_qubits;
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= state_size) return;
+    
+    Complex* state = states + batch_idx * state_size;
+    __shared__ double s_cos_half;
+    __shared__ double s_sin_half;
+    if (threadIdx.x == 0) {
+        float angle = angles[batch_idx];
+        s_cos_half = cosf(angle / 2.0);
+        s_sin_half = sinf(angle / 2.0);
+    }
+    __syncthreads();
+    
+    // Standard RY gate logic (same as non-batched)
+    if ((idx & (1ULL << target_qubit)) != 0) return;
+    
+    size_t flipped_idx = idx | (1ULL << target_qubit);
+    
+    Complex a0 = state[idx];
+    Complex a1 = state[flipped_idx];
+    
+    state[idx] = cuCaddf(
+        make_cuFloatComplex(s_cos_half * cuCrealf(a0), s_cos_half * cuCimagf(a0)),
+        make_cuFloatComplex(-s_sin_half * cuCrealf(a1), -s_sin_half * cuCimagf(a1))
+    );
+    
+    state[flipped_idx] = cuCaddf(
+        make_cuFloatComplex(s_sin_half * cuCrealf(a0), s_sin_half * cuCimagf(a0)),
+        make_cuFloatComplex(s_cos_half * cuCrealf(a1), s_cos_half * cuCimagf(a1))
+    );
+}
+
+/**
+ * @brief Batched RZ gate
+ */
+__global__ void apply_rz_gate_batched(
+    Complex* states,
+    int batch_size,
+    int target_qubit,
+    const double* angles,  // [batch_size]
+    int num_qubits
+) {
+    int batch_idx = blockIdx.y;
+    if (batch_idx >= batch_size) return;
+    
+    size_t state_size = 1ULL << num_qubits;
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= state_size) return;
+    
+    Complex* state = states + batch_idx * state_size;
+    __shared__ double s_cos_half;
+    __shared__ double s_sin_half;
+    if (threadIdx.x == 0) {
+        float angle = angles[batch_idx];
+        s_cos_half = cosf(angle / 2.0);
+        s_sin_half = sinf(angle / 2.0);
+    }
+    __syncthreads();
+
+    // phase = +/- angle/2 -> cosf(phase)=cosf(angle/2); sinf(phase)=sign * sinf(angle/2)
+    int sign = ((idx & (1ULL << target_qubit)) != 0) ? 1 : -1;
+    Complex rotation = make_cuFloatComplex(s_cos_half, sign * s_sin_half);
+    state[idx] = cuCmulf(state[idx], rotation);
+}
+
+/**
+ * @brief Batched CNOT gate
+ */
+__global__ void apply_cnot_gate_batched(
+    Complex* states,
+    int batch_size,
+    int control_qubit,
+    int target_qubit,
+    int num_qubits
+) {
+    int batch_idx = blockIdx.y;
+    if (batch_idx >= batch_size) return;
+    
+    size_t state_size = 1ULL << num_qubits;
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= state_size) return;
+    
+    Complex* state = states + batch_idx * state_size;
+    
+    // CNOT: flip target if control is |1⟩
+    if ((idx & (1ULL << control_qubit)) == 0) return;
+    if ((idx & (1ULL << target_qubit)) != 0) return;
+    
+    size_t flipped_idx = idx | (1ULL << target_qubit);
+    
+    if (idx < flipped_idx) {
+        Complex temp = state[idx];
+        state[idx] = state[flipped_idx];
+        state[flipped_idx] = temp;
+    }
+}
+
+/**
+ * @brief Batched fused RY+RZ layer (OPTIMIZED)
+ * 
+ * Applies RY followed by RZ to all qubits in one kernel.
+ * Reduces 32 kernel launches to 16 per batch.
+ */
+__global__ void apply_fused_ry_rz_layer_batched(
+    Complex* states,
+    int batch_size,
+    const double* ry_angles,  // [batch_size][16]
+    const double* rz_angles,  // [batch_size][16]
+    int num_qubits
+) {
+    int batch_idx = blockIdx.y;
+    if (batch_idx >= batch_size) return;
+    
+    size_t state_size = 1ULL << num_qubits;
+    size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
+    if (idx >= state_size) return;
+    
+    Complex* state = states + batch_idx * state_size;
+    const double* ry = ry_angles + batch_idx * num_qubits;
+    const double* rz = rz_angles + batch_idx * num_qubits;
+    
+    // Apply all 16 RY gates sequentially, then all 16 RZ gates
+    // This maintains determinism while processing entire layer
+    
+    // RY layer
+    for (int q = 0; q < num_qubits; q++) {
+        if ((idx & (1ULL << q)) != 0) continue;
+        
+        size_t flipped_idx = idx | (1ULL << q);
+        float angle = ry[q];
+        float cos_half = cosf(angle / 2.0);
+        float sin_half = sinf(angle / 2.0);
+        
+        Complex a0 = state[idx];
+        Complex a1 = state[flipped_idx];
+        
+        Complex new_a0 = cuCaddf(
+            make_cuFloatComplex(cos_half * cuCrealf(a0), cos_half * cuCimagf(a0)),
+            make_cuFloatComplex(-sin_half * cuCrealf(a1), -sin_half * cuCimagf(a1))
+        );
+        
+        Complex new_a1 = cuCaddf(
+            make_cuFloatComplex(sin_half * cuCrealf(a0), sin_half * cuCimagf(a0)),
+            make_cuFloatComplex(cos_half * cuCrealf(a1), cos_half * cuCimagf(a1))
+        );
+        
+        state[idx] = new_a0;
+        state[flipped_idx] = new_a1;
+    }
+    
+    // RZ layer
+    for (int q = 0; q < num_qubits; q++) {
+        float angle = rz[q];
+        float phase = ((idx & (1ULL << q)) != 0) ? angle / 2.0 : -angle / 2.0;
+        Complex rotation = make_cuFloatComplex(cosf(phase), sinf(phase));
+        state[idx] = cuCmulf(state[idx], rotation);
+    }
+}
+
+/**
+ * @brief Batched measurement kernel
  * 
  * Computes ⟨σz⟩ for all qubits in all states
  */
@@ -95,6 +269,7 @@ namespace {
 // ENABLED: Fused RY+RZ layer kernel reduces kernel launches from 66 to 4
 // This is CRITICAL for achieving competitive hashrates (10-20× speedup)
 // QTC circuit structure: [RY_all → RZ_all → CNOT] × 2 layers
+constexpr bool kEnableLayerFusion = true;
 }
 
 BatchedQuantumSimulator::BatchedQuantumSimulator(int num_qubits, int batch_size)
@@ -299,10 +474,10 @@ bool BatchedQuantumSimulator::apply_circuits_monolithic(
     
     const auto& ref = circuits[0];
     if (ref.gates.size() != 94) {
-        fmt::print(fg(fmt::color::red),
-            "Error: Expected 94 gates for QTC circuit, got {}. Aborting.\n",
+        fmt::print(fg(fmt::color::yellow),
+            "Warning: Expected 94 gates for QTC circuit, got {}. Falling back.\n",
             ref.gates.size());
-        return false;
+        return apply_circuits_optimized(circuits);
     }
     
     // CRITICAL OPTIMIZATION: Pack angles directly into persistent device buffers
@@ -356,6 +531,112 @@ bool BatchedQuantumSimulator::apply_circuits_monolithic(
     }
     
     // NO cudaFree here - buffers are persistent!
+    return true;
+}
+
+bool BatchedQuantumSimulator::apply_circuits_optimized(
+    const std::vector<QuantumCircuit>& circuits)
+{
+    if (circuits.size() != static_cast<size_t>(batch_size_)) {
+        fmt::print(fg(fmt::color::red),
+            "Circuit count mismatch: expected {}, got {}\n",
+            batch_size_, circuits.size());
+        return false;
+    }
+    
+    // For now, use simple approach: apply gates one at a time across batch
+    // Future optimization: group gates and apply in parallel
+    
+    int block_size = 512;
+    int num_blocks = (state_size_ + block_size - 1) / block_size;
+    dim3 grid(num_blocks, batch_size_);
+    dim3 block(block_size);
+    
+    // Assume all circuits have same structure (QTC property)
+    const auto& reference_circuit = circuits[0];
+    
+    size_t gate_idx = 0;
+    const size_t total_gates = reference_circuit.gates.size();
+    
+    while (gate_idx < total_gates) {
+        // Try to fuse a layer: [RY over all qubits][RZ over all qubits]
+        bool can_fuse_layer = false;
+        if (kEnableLayerFusion && gate_idx + (2 * num_qubits_) - 1 < total_gates) {
+            can_fuse_layer = true;
+            // Check first num_qubits_ are RY on distinct targets 0..num_qubits_-1
+            for (int q = 0; q < num_qubits_; ++q) {
+                const auto& g = reference_circuit.gates[gate_idx + q];
+                if (g.type != GateType::RY || g.target_qubit != q) { can_fuse_layer = false; break; }
+            }
+            // Check next num_qubits_ are RZ on same targets
+            if (can_fuse_layer) {
+                for (int q = 0; q < num_qubits_; ++q) {
+                    const auto& g = reference_circuit.gates[gate_idx + num_qubits_ + q];
+                    if (g.type != GateType::RZ || g.target_qubit != q) { can_fuse_layer = false; break; }
+                }
+            }
+        }
+
+        if (can_fuse_layer) {
+            // Build [batch][num_qubits] ry and rz angle matrices in pinned host buffers
+            for (int b = 0; b < batch_size_; ++b) {
+                for (int q = 0; q < num_qubits_; ++q) {
+                    h_layer_ry_[b * num_qubits_ + q] = circuits[b].gates[gate_idx + q].angle;
+                    h_layer_rz_[b * num_qubits_ + q] = circuits[b].gates[gate_idx + num_qubits_ + q].angle;
+                }
+            }
+
+            // Copy layer angles into persistent device buffers (async, pinned host)
+            cudaMemcpyAsync(d_layer_ry_, h_layer_ry_, batch_size_ * num_qubits_ * sizeof(double), cudaMemcpyHostToDevice, stream_);
+            cudaMemcpyAsync(d_layer_rz_, h_layer_rz_, batch_size_ * num_qubits_ * sizeof(double), cudaMemcpyHostToDevice, stream_);
+
+            apply_fused_ry_rz_layer_batched<<<grid, block, 0, stream_>>>(
+                d_states_, batch_size_, d_layer_ry_, d_layer_rz_, num_qubits_);
+
+            cudaError_t err = cudaGetLastError();
+            if (err != cudaSuccess) {
+                fmt::print(fg(fmt::color::red),
+                    "Batched fused layer error at gates [{}..{}]: {}\n",
+                    gate_idx, gate_idx + 2 * num_qubits_ - 1, cudaGetErrorString(err));
+                return false;
+            }
+
+            gate_idx += 2 * num_qubits_;
+            continue;
+        }
+
+        // No fusion possible: apply single gate across batch
+        const auto& gate = reference_circuit.gates[gate_idx];
+        if (gate.type == GateType::CNOT) {
+            apply_cnot_gate_batched<<<grid, block, 0, stream_>>>(
+                d_states_, batch_size_, gate.control_qubit,
+                gate.target_qubit, num_qubits_);
+        } else {
+            for (int b = 0; b < batch_size_; b++) {
+                h_gate_angles_[b] = circuits[b].gates[gate_idx].angle;
+            }
+            cudaMemcpyAsync(d_angles_, h_gate_angles_, batch_size_ * sizeof(double),
+                            cudaMemcpyHostToDevice, stream_);
+            if (gate.type == GateType::RY) {
+                apply_ry_gate_batched<<<grid, block, 0, stream_>>>(
+                    d_states_, batch_size_, gate.target_qubit, d_angles_, num_qubits_);
+            } else if (gate.type == GateType::RZ) {
+                apply_rz_gate_batched<<<grid, block, 0, stream_>>>(
+                    d_states_, batch_size_, gate.target_qubit, d_angles_, num_qubits_);
+            }
+        }
+
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            fmt::print(fg(fmt::color::red),
+                "Batched gate error at index {}: {}\n",
+                gate_idx, cudaGetErrorString(err));
+            return false;
+        }
+        ++gate_idx;
+    }
+
+    // Don't block here; let measurement synchronize
     return true;
 }
 

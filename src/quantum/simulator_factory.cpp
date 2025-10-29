@@ -3,8 +3,8 @@
  * This program is free software under the GPL-3.0 license. See LICENSE file.
  */
 
-#include "quantum/simulator.hpp"
-#include "quantum_kernel.cuh"
+#include "quantum/simulator_factory.hpp"
+#include "circuit_types.hpp"
 #include <memory>
 
 #if defined(OHMY_WITH_CUQUANTUM)
@@ -35,14 +35,16 @@ private:
 
 std::unique_ptr<ISimulator> create_simulator(int num_qubits) {
 #if defined(OHMY_WITH_CUQUANTUM)
-    // Prefer cuQuantum backend when compiled with support
     try {
+        // cuQuantum single-state is fastest for individual nonce processing
         return std::make_unique<CuQuantumSimulator>(num_qubits);
-    } catch (...) {
-        // Fallback to custom backend if cuQuantum construction fails
+    } catch (const std::exception&) {
+        // Fall back to custom if cuQuantum fails
+        return std::make_unique<CustomSimulatorAdapter>(num_qubits);
     }
-#endif
+#else
     return std::make_unique<CustomSimulatorAdapter>(num_qubits);
+#endif
 }
 
 } // namespace quantum

@@ -10,8 +10,9 @@
 
 #include <custatevec.h>
 #include <cuda_runtime.h>
+#include <cuComplex.h>
 #include <vector>
-#include "quantum_kernel.cuh"
+#include "../circuit_types.hpp"
 
 namespace ohmy {
 namespace quantum {
