@@ -6,10 +6,20 @@
 #pragma once
 
 #include <string>
+#include <vector>
 #include <nlohmann/json.hpp>
 
 namespace ohmy {
 namespace pool {
+
+/**
+ * Stratum error structure for parsing
+ */
+struct StratumErrorInfo {
+    int code = 0;
+    std::string message;
+    std::string traceback;
+};
 
 /**
  * Stratum message types and JSON-RPC helper functions
@@ -47,6 +57,19 @@ public:
     static bool is_error(const json& msg) {
         return msg.contains("error") && msg["error"] != nullptr;
     }
+
+    // Test helper methods (string-based)
+    static std::string subscribe_request(int id, const std::string& user_agent);
+    static std::string authorize_request(int id, const std::string& worker, const std::string& password);
+    static std::string submit_request(int id, const std::string& worker, const std::string& job_id,
+                                     const std::string& extranonce2, const std::string& ntime,
+                                     const std::string& nonce);
+    static bool parse_response(const std::string& response, int& id, json& result, StratumErrorInfo& error);
+    static bool parse_notify(const std::string& notification, std::string& job_id, std::string& prev_hash,
+                            std::string& coinbase1, std::string& coinbase2,
+                            std::vector<std::string>& merkle_branch, std::string& version,
+                            std::string& nbits, std::string& ntime, bool& clean_jobs);
+    static bool parse_set_difficulty(const std::string& notification, double& difficulty);
 
 private:
     static json make_request(uint64_t id, const std::string& method, const json& params) {

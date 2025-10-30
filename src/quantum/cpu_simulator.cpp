@@ -131,34 +131,9 @@ private:
     StateVector state_;
 };
 
-// Factory implementation
-std::unique_ptr<IQuantumSimulator> SimulatorFactory::create(Backend backend, int max_qubits) {
-    switch (backend) {
-        case Backend::CPU_BASIC:
-            return std::make_unique<CPUSimulator>(max_qubits);
-        
-        case Backend::CUDA_CUSTOM:
-            throw std::runtime_error("CUDA backend not yet implemented");
-        
-        case Backend::CUQUANTUM:
-            throw std::runtime_error("cuQuantum backend not yet implemented");
-        
-        default:
-            throw std::invalid_argument("Unknown backend");
-    }
-}
-
-std::vector<SimulatorFactory::Backend> SimulatorFactory::available_backends() {
-    return {Backend::CPU_BASIC};
-}
-
-std::string SimulatorFactory::backend_name(Backend backend) {
-    switch (backend) {
-        case Backend::CPU_BASIC: return "CPU_BASIC";
-        case Backend::CUDA_CUSTOM: return "CUDA_CUSTOM";
-        case Backend::CUQUANTUM: return "CUQUANTUM";
-        default: return "UNKNOWN";
-    }
+// Factory function to create CPU simulator
+std::unique_ptr<IQuantumSimulator> create_cpu_simulator(int max_qubits) {
+    return std::make_unique<CPUSimulator>(max_qubits);
 }
 
 } // namespace quantum

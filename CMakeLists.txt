@@ -105,6 +105,7 @@ add_executable(ohmy-miner
   src/pool/job_monitor.cpp
   src/quantum/circuit.cpp
   src/quantum/cpu_simulator.cpp
+  src/quantum/simulator_factory.cpp
   src/mining/qhash_worker.cpp
 )
 
@@ -128,3 +129,8 @@ if(OHMY_WITH_CUQUANTUM AND HAVE_CUQUANTUM)
   target_sources(ohmy-miner PRIVATE src/quantum/custatevec_backend.cpp src/quantum/custatevec_batched.cu)
   target_link_libraries(ohmy-miner PRIVATE ${CUQUANTUM_custatevec_LIBRARY})
 endif()
+
+# --- Unit Tests ---
+# Enable testing framework
+enable_testing()
+add_subdirectory(tests)
