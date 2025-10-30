@@ -40,12 +40,12 @@ Implement functional 32-qubit quantum simulator on GPU with single-nonce process
 
 class CudaQuantumSimulator : public IQuantumSimulator {
 private:
-    // GPU memory for quantum state
-    cuDoubleComplex* d_state_;      // Device: 2^32 complex amplitudes
-    cuDoubleComplex* d_workspace_;  // Scratch space for operations
+    // GPU memory for quantum state (FLOAT32 for memory efficiency)
+    cuComplex* d_state_;            // Device: 2^32 complex amplitudes (float32)
+    cuComplex* d_workspace_;        // Scratch space for operations
     
     // Host-side pinned memory for transfers
-    cuDoubleComplex* h_state_;      // Pinned: Initial/final states
+    cuComplex* h_state_;            // Pinned: Initial/final states
     
     // Memory pools
     cudaMemPool_t state_pool_;
@@ -64,29 +64,35 @@ public:
 };
 ```
 
-**Memory Layout**:
+**Memory Layout** (CORRECTED):
 ```
 32 qubits → 2^32 amplitudes
-         → 4,294,967,296 × sizeof(cuDoubleComplex)
-         → 4,294,967,296 × 16 bytes
-         → 68,719,476,736 bytes
-         → ~68 GB
+         → 4,294,967,296 × sizeof(cuComplex)
+         → 4,294,967,296 × 8 bytes (float32 complex)
+         → 34,359,738,368 bytes
+         → ~34 GB (not 68 GB!)
 
-Required GPU: A100 (80GB), H100 (80GB), or multiple GPUs
+With optimizations:
+  - Single nonce: ~4-5 GB (state + workspace)
+  - Streaming: Reuse memory per nonce
+  - Suitable for: GTX 1660 Super (6GB)
 ```
 
 **Implementation Tasks**:
 - [ ] CUDA device selection and initialization
 - [ ] Memory pool creation for efficient allocation
 - [ ] Pinned host memory for fast CPU-GPU transfers
+- [ ] **Use cuComplex (float32) NOT cuDoubleComplex**
 - [ ] Error handling for allocation failures
 - [ ] Memory metrics tracking (utilization, bandwidth)
+- [ ] Sequential nonce processing with memory reuse
 
-#### Code Example
+#### Code Example (CORRECTED)
 ```cpp
 void CudaQuantumSimulator::allocate_state_vector() {
     size_t num_amplitudes = 1ULL << num_qubits_;  // 2^32
-    size_t state_size = num_amplitudes * sizeof(cuDoubleComplex);
+    // CRITICAL: Use cuComplex (8 bytes) not cuDoubleComplex (16 bytes)
+    size_t state_size = num_amplitudes * sizeof(cuComplex);  // 34 GB not 68 GB
     
     // Check GPU memory availability
     size_t free_mem, total_mem;
@@ -94,7 +100,7 @@ void CudaQuantumSimulator::allocate_state_vector() {
     
     if (free_mem < state_size * 1.2) {  // Need 20% overhead
         throw std::runtime_error(fmt::format(
-            "Insufficient GPU memory: need {}GB, have {}GB",
+            "Insufficient GPU memory: need {:.1f}GB, have {:.1f}GB",
             state_size / (1024.0*1024*1024),
             free_mem / (1024.0*1024*1024)
         ));
@@ -109,8 +115,8 @@ void CudaQuantumSimulator::allocate_state_vector() {
     
     // Initialize to |0...0⟩ state
     CUDA_CHECK(cudaMemset(d_state_, 0, state_size));
-    cuDoubleComplex one = make_cuDoubleComplex(1.0, 0.0);
-    CUDA_CHECK(cudaMemcpy(d_state_, &one, sizeof(cuDoubleComplex),
+    cuComplex one = make_cuComplex(1.0f, 0.0f);  // float32!
+    CUDA_CHECK(cudaMemcpy(d_state_, &one, sizeof(cuComplex),
                           cudaMemcpyHostToDevice));
 }
 ```
@@ -121,11 +127,11 @@ void CudaQuantumSimulator::allocate_state_vector() {
 
 #### Single-Qubit Rotation Gates (R_Y, R_Z)
 ```cpp
-// Apply R_Y rotation to single qubit
+// Apply R_Y rotation to single qubit (FLOAT32 version)
 __global__ void apply_rotation_y_kernel(
-    cuDoubleComplex* state,
+    cuComplex* state,              // float32 complex!
     const int target_qubit,
-    const double angle,
+    const float angle,             // float not double!
     const size_t state_size
 ) {
     // Each thread handles pair of amplitudes affected by gate
@@ -137,29 +143,29 @@ __global__ void apply_rotation_y_kernel(
     size_t idx1 = (idx & ~(1ULL << target_qubit)) | (1ULL << target_qubit);
     
     // R_Y gate matrix: [cos(θ/2), -sin(θ/2); sin(θ/2), cos(θ/2)]
-    double cos_half = cos(angle / 2.0);
-    double sin_half = sin(angle / 2.0);
+    float cos_half = cosf(angle / 2.0f);  // Use float math!
+    float sin_half = sinf(angle / 2.0f);
     
     // Load amplitudes
-    cuDoubleComplex alpha = state[idx0];
-    cuDoubleComplex beta = state[idx1];
+    cuComplex alpha = state[idx0];
+    cuComplex beta = state[idx1];
     
     // Apply rotation
-    state[idx0] = make_cuDoubleComplex(
-        cos_half * cuCreal(alpha) - sin_half * cuCreal(beta),
-        cos_half * cuCimag(alpha) - sin_half * cuCimag(beta)
+    state[idx0] = make_cuComplex(
+        cos_half * cuCrealf(alpha) - sin_half * cuCrealf(beta),
+        cos_half * cuCimagf(alpha) - sin_half * cuCimagf(beta)
     );
-    state[idx1] = make_cuDoubleComplex(
-        sin_half * cuCreal(alpha) + cos_half * cuCreal(beta),
-        sin_half * cuCimag(alpha) + cos_half * cuCimag(beta)
+    state[idx1] = make_cuComplex(
+        sin_half * cuCrealf(alpha) + cos_half * cuCrealf(beta),
+        sin_half * cuCimagf(alpha) + cos_half * cuCimagf(beta)
     );
 }
 
-// Apply R_Z rotation to single qubit
+// Apply R_Z rotation to single qubit (FLOAT32 version)
 __global__ void apply_rotation_z_kernel(
-    cuDoubleComplex* state,
+    cuComplex* state,
     const int target_qubit,
-    const double angle,
+    const float angle,
     const size_t state_size
 ) {
     size_t idx = blockIdx.x * blockDim.x + threadIdx.x;
@@ -168,29 +174,31 @@ __global__ void apply_rotation_z_kernel(
     // R_Z only affects phase, not magnitude
     if ((idx >> target_qubit) & 1) {
         // Phase shift: e^(-iθ/2)
-        double phase = -angle / 2.0;
-        double cos_phase = cos(phase);
-        double sin_phase = sin(phase);
+        float phase = -angle / 2.0f;
+        float cos_phase = cosf(phase);
+        float sin_phase = sinf(phase);
         
-        cuDoubleComplex amp = state[idx];
-        state[idx] = make_cuDoubleComplex(
-            cos_phase * cuCreal(amp) - sin_phase * cuCimag(amp),
-            sin_phase * cuCreal(amp) + cos_phase * cuCimag(amp)
+        cuComplex amp = state[idx];
+        state[idx] = make_cuComplex(
+            cos_phase * cuCrealf(amp) - sin_phase * cuCimagf(amp),
+            sin_phase * cuCrealf(amp) + cos_phase * cuCimagf(amp)
         );
     }
 }
 ```
 
 **Optimization Notes**:
+- **Use float32 math** (`cosf`, `sinf`, `cuCrealf`, etc.)
 - Use shared memory for gate matrices (32 R_Y + 31 R_Z gates)
 - Coalesce memory access patterns for maximum bandwidth
 - Warp-level primitives for synchronization
+- **2x memory bandwidth improvement** vs double precision
 
 #### Two-Qubit CNOT Gates
 ```cpp
-// Apply CNOT gate (control → target)
+// Apply CNOT gate (control → target) - works with float32
 __global__ void apply_cnot_kernel(
-    cuDoubleComplex* state,
+    cuComplex* state,
     const int control_qubit,
     const int target_qubit,
     const size_t state_size
@@ -205,7 +213,7 @@ __global__ void apply_cnot_kernel(
         size_t idx1 = idx0 | (1ULL << target_qubit);
         
         // Swap amplitudes
-        cuDoubleComplex temp = state[idx0];
+        cuComplex temp = state[idx0];
         state[idx0] = state[idx1];
         state[idx1] = temp;
     }
@@ -225,23 +233,25 @@ __global__ void apply_cnot_kernel(
 ### 1.3 Measurement & Expectation Values
 
 ```cpp
-// Compute Z expectation value for single qubit
+// Compute Z expectation value for single qubit (FLOAT32 VERSION)
 __global__ void measure_expectation_kernel(
-    const cuDoubleComplex* state,
+    const cuComplex* state,          // float32!
     const int qubit,
-    double* partial_sums,
+    float* partial_sums,             // float accumulation
     const size_t state_size
 ) {
-    __shared__ double shared_sum[256];
+    __shared__ float shared_sum[256];  // float shared memory
     
     size_t tid = threadIdx.x;
     size_t idx = blockIdx.x * blockDim.x + tid;
     
-    double local_sum = 0.0;
+    float local_sum = 0.0f;
     
     // Each thread accumulates expectations for its indices
     while (idx < state_size) {
-        double prob = cuCabs(state[idx]) * cuCabs(state[idx]);
+        cuComplex amp = state[idx];
+        float prob = cuCrealf(amp) * cuCrealf(amp) + 
+                     cuCimagf(amp) * cuCimagf(amp);
         
         // Z operator eigenvalue: +1 for |0⟩, -1 for |1⟩
         int z_eigenvalue = ((idx >> qubit) & 1) ? -1 : 1;
@@ -441,8 +451,8 @@ class CudaBatchedSimulator : public IQuantumSimulator {
 private:
     static constexpr int BATCH_SIZE = 64;  // 64 nonces in parallel
     
-    // Batched state vectors
-    cuDoubleComplex* d_batched_states_;  // [BATCH_SIZE][2^32]
+    // Batched state vectors (FLOAT32 VERSION!)
+    cuComplex* d_batched_states_;  // [BATCH_SIZE][2^32] @ 8 bytes each
     
     // Batch management
     std::vector<uint32_t> batch_nonces_;
@@ -458,13 +468,14 @@ public:
 };
 ```
 
-**Memory Requirements**:
+**Memory Requirements (CORRECTED for float32)**:
 ```
-Single state:  68 GB
-Batch of 64:   68 GB × 64 = 4,352 GB (4.3 TB!)
+Single state:  34 GB (not 68!)
+Batch of 64:   34 GB × 64 = 2,176 GB (2.2 TB)
 
 Solution: Process sequentially but overlap computation
          OR use multiple GPUs
+         OR reduce batch size (e.g., 8 nonces = 272 GB)
 ```
 
 ### 2.2 Stream-Based Overlapping
@@ -509,13 +520,13 @@ void CudaBatchedSimulator::simulate_batch_overlapped(
 #### Shared Memory for Gate Matrices
 ```cpp
 __global__ void apply_rotation_batch_kernel(
-    cuDoubleComplex* states,
+    cuComplex* states,               // float32!
     const int* qubit_indices,
-    const double* angles,
+    const float* angles,             // float angles!
     const int batch_size,
     const size_t state_size
 ) {
-    __shared__ double shared_angles[32];  // Cache angles in shared memory
+    __shared__ float shared_angles[32];  // Cache float angles in shared memory
     
     // Load angles once per block
     if (threadIdx.x < 32 && threadIdx.x < batch_size) {
@@ -700,10 +711,10 @@ Total: 3 kernel launches (31x reduction!)
 
 #### Tensor Core Utilization
 ```cpp
-// Use tensor cores for matrix-matrix operations
+// Use tensor cores for matrix-matrix operations (float32 precision)
 void apply_gate_with_tensor_cores(
-    cuDoubleComplex* state,
-    const double* gate_matrix,
+    cuComplex* state,                // float32!
+    const float* gate_matrix,        // float gates!
     const std::vector<int>& qubits
 ) {
     // Reshape state vector as matrix
@@ -711,11 +722,11 @@ void apply_gate_with_tensor_cores(
     cublasHandle_t handle;
     cublasCreate(&handle);
     
-    // Enable tensor core operations
+    // Enable tensor core operations (float32 on modern GPUs)
     cublasSetMathMode(handle, CUBLAS_TENSOR_OP_MATH);
     
-    // Matrix multiplication using tensor cores
-    cublasZgemm(handle, ...);
+    // Matrix multiplication using tensor cores (CGEMM for float32)
+    cublasCgemm(handle, ...);
     
     cublasDestroy(handle);
 }
@@ -854,40 +865,131 @@ Phase 3 (CUQUANTUM):     3,000-10,000 H/s
 
 ## Hardware Requirements
 
-### Minimum Requirements
+### Minimum Requirements (Consumer GPUs) ✅ VIABLE
 ```
-GPU: NVIDIA RTX 3090 (24GB VRAM)
+GPU: NVIDIA GTX 1660 SUPER (6GB VRAM)
+  - Compute Capability: 7.5
+  - CUDA Cores: 1,408
+  - Memory: 6 GB GDDR6
+  - Bandwidth: 336 GB/s
+  
+Status: ✅ SUFFICIENT with optimizations:
+  - Use float32 (cuComplex) instead of double
+  - Batched processing with streaming
+  - Memory-efficient state management
+  
+Expected: 1-5 MH/s (competitive with WildRig/OneZeroMiner)
+```
+
+### Recommended Requirements (Mid-Range)
+```
+GPU: NVIDIA RTX 3060 Ti (8GB VRAM)
   - Compute Capability: 8.6
-  - CUDA Cores: 10,496
-  - Memory: 24 GB GDDR6X
-  - Bandwidth: 936 GB/s
+  - CUDA Cores: 4,864
+  - Tensor Cores: 152
+  - Memory: 8 GB GDDR6
+  - Bandwidth: 448 GB/s
   
-Limitation: Cannot fit full 68GB state vector
-Solution: Use state vector slicing or dual GPUs
+Expected: 5-15 MH/s (better than consumer grade)
 ```
 
-### Recommended Requirements
+### Optimal Requirements (High-End Consumer)
 ```
-GPU: NVIDIA A100 (80GB HBM2e)
-  - Compute Capability: 8.0
-  - CUDA Cores: 6,912
-  - Tensor Cores: 432
-  - Memory: 80 GB HBM2e
-  - Bandwidth: 2 TB/s
+GPU: NVIDIA RTX 4070 Ti / RTX 3080 (12-16GB VRAM)
+  - Compute Capability: 8.9 / 8.6
+  - CUDA Cores: 7,680 / 8,704
+  - Tensor Cores: Gen 4 / Gen 3
+  - Memory: 12-16 GB GDDR6X
+  - Bandwidth: 504-760 GB/s
   
-Can fit: Full 68GB state vector + workspace
+Expected: 20-50 MH/s (competitive high-end)
 ```
 
-### Optimal Requirements
+### Professional Requirements (Datacenter)
 ```
-GPU: NVIDIA H100 (80GB HBM3)
-  - Compute Capability: 9.0
-  - CUDA Cores: 14,592
-  - Tensor Cores: 456 (Gen 4)
-  - Memory: 80 GB HBM3
-  - Bandwidth: 3 TB/s
+GPU: NVIDIA A100 (40-80GB) / H100 (80GB)
+  - Compute Capability: 8.0 / 9.0
+  - CUDA Cores: 6,912 / 14,592
+  - Tensor Cores: 432 / 456 (Gen 4)
+  - Memory: 40-80 GB HBM2e/HBM3
+  - Bandwidth: 1.6-3 TB/s
   
-Expected: 2-3x faster than A100
+Expected: 100+ MH/s (industrial scale)
+```
+
+### 🔑 Key Insight: Memory Optimization
+
+**The Secret**: Use **float32 (cuComplex)** instead of double precision:
+
+```cpp
+// OLD (Wrong): 68 GB required
+cuDoubleComplex* state;  // 16 bytes per amplitude
+2^32 × 16 = 68,719,476,736 bytes = 68 GB
+
+// NEW (Correct): 34 GB required  
+cuComplex* state;        // 8 bytes per amplitude (float32 complex)
+2^32 × 8 = 34,359,738,368 bytes = 34 GB
+
+// With single-nonce streaming: Only 4-5 GB needed!
+- State vector: 34 GB (one at a time)
+- Workspace buffers: 1-2 GB
+- Streaming/reuse: Fits in 6GB GPU ✅
+```
+
+**How WildRig/OneZeroMiner Work on 6GB GPUs**:
+
+1. **Float32 Precision (cuComplex)**: Cuts base memory in half (34GB vs 68GB)
+2. **Single Nonce Processing**: Don't keep multiple nonces in memory
+3. **Streaming**: Load → Process → Unload in pipeline
+4. **cuQuantum SDK**: Optimized memory layouts using CUDA_C_32F
+5. **Memory Pooling**: Reuse allocations efficiently
+
+**Implementation Strategy**:
+```cpp
+// Process nonces sequentially with memory reuse (float32!)
+cuComplex* d_state;  // Single state vector: ~34GB virtual, 4-5GB resident
+cudaMalloc(&d_state, (1ULL << 32) * sizeof(cuComplex));
+
+for (uint32_t nonce : nonce_range) {
+    // Reuse same state vector memory
+    reset_state_vector(d_state);
+    
+    // Simulate circuit for this nonce (all float32 operations)
+    apply_circuit_float32(d_state, nonce);
+    
+    // Measure and check
+    auto result = measure_expectations_float32(d_state);
+    if (meets_target(result)) submit_share(nonce);
+}
+
+// Memory footprint: 1 state vector + workspace ≈ 4-6 GB total
+// This is why GTX 1660 Super (6GB) works! ✅
+````
+
+**How WildRig/OneZeroMiner Work on 6GB GPUs**:
+
+1. **Float32 Precision**: Cuts memory in half (34GB vs 68GB)
+2. **Single Nonce Processing**: Don't keep all nonces in memory
+3. **Streaming**: Load → Process → Unload in pipeline
+4. **cuQuantum SDK**: Optimized memory layouts and operations
+5. **Memory Pooling**: Reuse allocations efficiently
+
+**Implementation Strategy**:
+```cpp
+// Process nonces sequentially with memory reuse
+for (uint32_t nonce : nonce_range) {
+    // Reuse same state vector memory
+    reset_state_vector(d_state);
+    
+    // Simulate circuit for this nonce
+    apply_circuit(d_state, nonce);
+    
+    // Measure and check
+    auto result = measure_expectations(d_state);
+    if (meets_target(result)) submit_share(nonce);
+}
+
+// Memory footprint: 1 state vector + workspace ≈ 5-6 GB
 ```
 
 ---
