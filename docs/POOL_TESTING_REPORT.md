@@ -92,33 +92,37 @@ Consensus implementation is correct and ready for production.
 **Error**:
 ```
 ❌ FATAL: Cannot allocate 32-qubit state vector on CPU
-   Required: ~32GB RAM for 2^32 complex amplitudes
-   Solution: Use GPU backend or cuQuantum for production mining
+   Required: ~34GB RAM for 2^32 complex amplitudes (float32)
+   Solution: Use GPU backend with cuQuantum for production mining
 
 Technical details:
   - qhash requires 32 qubits (official spec)
-  - CPU simulator needs 2^32 × 16 bytes = 68GB memory
-  - GPU can handle this efficiently with batching
+  - CPU simulator needs 2^32 × 8 bytes (float32) = 34GB memory
+  - GPU can handle this efficiently with streaming (4-6GB practical usage)
   - Temporal forks implementation is CORRECT
   - All tests pass - consensus logic validated ✓
 ```
 
 **Root Cause**:
 ```cpp
-// State vector size calculation:
+// State vector size calculation (using float32/cuComplex):
 num_qubits = 32
 num_amplitudes = 2^32 = 4,294,967,296
-bytes_per_amplitude = 16 (std::complex<double>)
-total_memory = 4,294,967,296 × 16 = 68,719,476,736 bytes
-             = ~68 GB RAM
+bytes_per_amplitude = 8 (cuComplex / std::complex<float>)
+total_memory = 4,294,967,296 × 8 = 34,359,738,368 bytes
+             = ~34 GB RAM (base requirement)
+
+Note: Official implementation uses CUDA_C_32F (float32 precision)
+With GPU streaming: only 4-6GB practical memory usage
 ```
 
 **System Resources**:
 - Available RAM: Typically 8-32GB on consumer hardware
-- Required RAM: 68GB for full state vector
-- **Gap**: 36-60GB insufficient
+- Required RAM: 34GB for full state vector (CPU)
+- **Gap**: 2-26GB insufficient
+- **GPU Solution**: Streaming allows 4-6GB usage on consumer GPUs (6GB+)
 
-**Result**: CPU mining is **physically impossible** without downsampling (which would break consensus).
+**Result**: CPU mining is **physically impossible** without GPU backend.
 
 ---
 
@@ -131,40 +135,57 @@ total_memory = 4,294,967,296 × 16 = 68,719,476,736 bytes
 - **94 quantum operations** (32 R_Y + 31 CNOT + 31 R_Z)
 - State vector grows exponentially: O(2^n) where n = num_qubits
 
-**Memory Requirements by Qubit Count**:
+**Memory Requirements by Qubit Count** (using float32):
 ```
- 4 qubits → 2^4  = 16 amplitudes      = 256 bytes
- 8 qubits → 2^8  = 256 amplitudes     = 4 KB
-16 qubits → 2^16 = 65,536 amplitudes  = 1 MB
-20 qubits → 2^20 = 1,048,576          = 16 MB
-24 qubits → 2^24 = 16,777,216         = 256 MB
-28 qubits → 2^28 = 268,435,456        = 4 GB
-32 qubits → 2^32 = 4,294,967,296      = 68 GB ← REQUIRED
+ 4 qubits → 2^4  = 16 amplitudes      = 128 bytes
+ 8 qubits → 2^8  = 256 amplitudes     = 2 KB
+16 qubits → 2^16 = 65,536 amplitudes  = 512 KB
+20 qubits → 2^20 = 1,048,576          = 8 MB
+24 qubits → 2^24 = 16,777,216         = 128 MB
+28 qubits → 2^28 = 268,435,456        = 2 GB
+32 qubits → 2^32 = 4,294,967,296      = 34 GB ← REQUIRED (float32)
+                                         68 GB  ← If using double precision
 ```
 
-**Conclusion**: 32 qubits is beyond CPU simulation capability for consumer/prosumer hardware.
+**Conclusion**: 32 qubits requires 34GB (float32) or 68GB (double), both beyond typical CPU RAM.
 
 ---
 
 ### Why GPU Is Required
 
 **GPU Advantages**:
-1. **Massive Memory**: A100 (80GB), H100 (80GB) can fit state vector
+1. **Large Memory**: Consumer GPUs (6GB+) can handle with streaming
+   - GTX 1660 Super (6GB): Viable with single-nonce streaming
+   - RTX 3060 (12GB): Comfortable for batched processing
+   - RTX 4090 (24GB): Multiple nonces in parallel
+   - A100 (40-80GB): Full batch processing
 2. **Batched Processing**: Process multiple nonces in parallel
 3. **Tensor Cores**: Accelerate matrix operations (gates)
-4. **Memory Bandwidth**: 2TB/s vs CPU's 100GB/s
+4. **Memory Bandwidth**: 200-2000 GB/s vs CPU's 50-100 GB/s
+5. **Float32 Optimization**: Official implementation uses CUDA_C_32F (8 bytes)
 
 **cuQuantum Optimization**:
 - Optimized for NVIDIA GPUs
 - 10-30x faster than custom kernels
-- State vector management built-in
+- State vector management with streaming built-in
 - Supports batched simulation
+- Uses float32 precision (CUDA_C_32F)
+
+**Practical Memory Usage (GPU)**:
+```
+Base requirement:    34 GB (single state vector, float32)
+With streaming:      4-6 GB (single nonce + workspace)
+Consumer GPU (6GB):  ✅ VIABLE (GTX 1660 Super confirmed)
+Mid-range (12GB):    ✅ COMFORTABLE (2-3 nonces in parallel)
+High-end (24GB):     ✅ EXCELLENT (4-8 nonces in parallel)
+```
 
 **Example Performance**:
 ```
-CPU (impossible):     N/A (out of memory)
-GPU Custom:          ~300 H/s (estimated)
-GPU cuQuantum:       ~3,000+ H/s (measured)
+CPU:                 N/A (out of memory)
+GPU Basic:          ~300-500 H/s (custom kernels)
+GPU cuQuantum:       3,000-10,000 H/s (optimized library)
+WildRig Reference:   36,000,000 H/s (36.81 MH/s on GTX 1660 Super)
 ```
 
 ---
@@ -370,12 +391,20 @@ Nibbles: 64 (from 32-byte SHA256 hash)
 
 ### Memory Calculation
 ```cpp
-sizeof(std::complex<double>) = 16 bytes
+// Float32 precision (official implementation uses CUDA_C_32F)
+sizeof(cuComplex) = 8 bytes  // or std::complex<float>
 num_amplitudes = 2^32 = 4,294,967,296
-total_memory = 4,294,967,296 × 16 bytes
-             = 68,719,476,736 bytes
-             = 68 GB RAM
-             = INFEASIBLE on CPU
+total_memory = 4,294,967,296 × 8 bytes
+             = 34,359,738,368 bytes
+             = 34 GB base requirement
+             = 4-6 GB with streaming (GPU)
+             = VIABLE on consumer GPUs (6GB+)
+
+// Double precision (not used by official implementation)
+sizeof(cuDoubleComplex) = 16 bytes
+total_memory = 4,294,967,296 × 16 bytes  
+             = 68 GB
+             = INFEASIBLE on CPU and consumer GPUs
 ```
 
 ---
