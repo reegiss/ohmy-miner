@@ -11,11 +11,8 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
-# --- Enable OpenMP for CPU parallelization ---
-find_package(OpenMP REQUIRED)
-
 # --- Compiler Flags ---
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror ${OpenMP_CXX_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra -Werror")
 set(CMAKE_CUDA_FLAGS "${CMAKE_CUDA_FLAGS} -Wall -Wextra -Werror=all-warnings")
 
 # --- Specify target GPU architectures ---
@@ -60,11 +57,16 @@ find_package(CUDAToolkit REQUIRED)
 # Find OpenSSL for SHA256
 find_package(OpenSSL REQUIRED)
 
-# --- CORREÇÃO FINAL: Usar o comando global 'include_directories' ---
-# A dependência Asio é colocada em `${asio_SOURCE_DIR}/asio`; ensure we
-# include the proper subfolder so `#include <asio.hpp>` resolves.
-include_directories("${asio_SOURCE_DIR}/asio/include")
-include_directories("${CMAKE_CURRENT_SOURCE_DIR}/include")
+# Include directories setup
+include_directories(
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"  # For our headers
+    "${asio_SOURCE_DIR}/asio/include"      # For asio.hpp
+)
+
+# Link directories setup
+link_directories(
+    "${CMAKE_BINARY_DIR}/lib"
+)
 
 # --- Optional: cuQuantum (custatevec) backend ---
 option(OHMY_WITH_CUQUANTUM "Enable cuQuantum custatevec backend" OFF)
@@ -98,6 +100,12 @@ endif()
 # --- Executable Target ---
 add_executable(ohmy-miner
   src/main.cpp
+  src/pool/stratum_client.cpp
+  src/pool/work_manager.cpp
+  src/pool/job_monitor.cpp
+  src/quantum/circuit.cpp
+  src/quantum/cpu_simulator.cpp
+  src/mining/qhash_worker.cpp
 )
 
 # A definição ASIO_STANDALONE ainda é necessária
@@ -113,7 +121,6 @@ target_link_libraries(ohmy-miner PRIVATE
   OpenSSL::SSL
   OpenSSL::Crypto
   Threads::Threads
-  OpenMP::OpenMP_CXX
 )
 
 # Link cuQuantum if available
