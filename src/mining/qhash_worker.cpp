@@ -145,8 +145,11 @@ bool QHashWorker::try_nonce(const ohmy::pool::WorkPackage& work, uint32_t nonce)
         // 1. Format block header with nonce
         std::string block_header = format_block_header(work, nonce);
         
-        // 2. Compute qhash
-        std::string result_hash = compute_qhash(block_header, nonce);
+        // 2. Convert time string to uint32_t for temporal fork calculations
+        uint32_t nTime = static_cast<uint32_t>(std::stoul(work.time, nullptr, 16));
+        
+        // 3. Compute qhash with nTime for temporal fork support
+        std::string result_hash = compute_qhash(block_header, nonce, nTime);
         
         // 3. Check if meets target
         return meets_target(result_hash, work.bits);
@@ -157,12 +160,12 @@ bool QHashWorker::try_nonce(const ohmy::pool::WorkPackage& work, uint32_t nonce)
     }
 }
 
-std::string QHashWorker::compute_qhash(const std::string& block_header, [[maybe_unused]] uint32_t nonce) {
+std::string QHashWorker::compute_qhash(const std::string& block_header, [[maybe_unused]] uint32_t nonce, uint32_t nTime) {
     // 1. Hash → Circuit Parameters: SHA256d(block_header) seeds quantum gate rotation angles
     std::string seed_hash = sha256d(block_header);
     
-    // 2. Generate quantum circuit from hash
-    auto circuit = generate_circuit_from_hash(seed_hash);
+    // 2. Generate quantum circuit from hash (with temporal fork awareness)
+    auto circuit = generate_circuit_from_hash(seed_hash, nTime);
     
     // 3. Simulate quantum circuit
     auto expectations = simulate_circuit(circuit);
@@ -183,25 +186,61 @@ std::string QHashWorker::compute_qhash(const std::string& block_header, [[maybe_
     return sha256d(combined);
 }
 
-quantum::QuantumCircuit QHashWorker::generate_circuit_from_hash(const std::string& hash_hex) {
-    // Create a simple quantum circuit based on hash
-    // For now, create a 4-qubit circuit
-    quantum::QuantumCircuit circuit(4);
+quantum::QuantumCircuit QHashWorker::generate_circuit_from_hash(const std::string& hash_hex, uint32_t nTime) {
+    // Official qhash specification: 32 qubits, 94 operations (32 R_Y + 31 CNOT + 31 R_Z)
+    // Reference: super-quantum/qubitcoin qhash.cpp
+    constexpr int NUM_QUBITS = 32;
+    quantum::QuantumCircuit circuit(NUM_QUBITS);
     
-    // Use hash bytes to generate rotation angles
-    for (size_t i = 0; i < std::min(hash_hex.length() / 2, size_t(4)); ++i) {
-        std::string byte_str = hash_hex.substr(i * 2, 2);
-        uint8_t byte_val = static_cast<uint8_t>(std::stoul(byte_str, nullptr, 16));
-        
-        // Convert byte to angle [0, 2π]
-        double angle = (byte_val / 255.0) * 2.0 * M_PI;
-        circuit.add_rotation(i, angle);
+    // Temporal flag for Fork #4 (Sep 17, 2025 16:00 UTC)
+    // Changes angle parametrization after this timestamp
+    const int temporal_flag = (nTime >= 1758762000) ? 1 : 0;
+    
+    // Extract 64 nibbles from 32-byte hash (256 bits = 64 nibbles of 4 bits each)
+    std::vector<uint8_t> nibbles;
+    nibbles.reserve(64);
+    
+    for (size_t i = 0; i < hash_hex.length() && nibbles.size() < 64; ++i) {
+        char c = hash_hex[i];
+        uint8_t nibble;
+        if (c >= '0' && c <= '9') {
+            nibble = c - '0';
+        } else if (c >= 'a' && c <= 'f') {
+            nibble = c - 'a' + 10;
+        } else if (c >= 'A' && c <= 'F') {
+            nibble = c - 'A' + 10;
+        } else {
+            continue; // Skip non-hex characters
+        }
+        nibbles.push_back(nibble);
     }
     
-    // Add some CNOT gates for entanglement
-    circuit.add_cnot(0, 1);
-    circuit.add_cnot(1, 2);
-    circuit.add_cnot(2, 3);
+    // Ensure we have exactly 64 nibbles (pad with zeros if needed)
+    while (nibbles.size() < 64) {
+        nibbles.push_back(0);
+    }
+    
+    // Phase 1: Apply R_Y gates to all 32 qubits (operations 0-31)
+    // Formula: angle = -(2*nibble + temporal_flag) * π/32
+    for (int i = 0; i < NUM_QUBITS; ++i) {
+        uint8_t nibble = nibbles[i * 2]; // Use even-indexed nibbles for R_Y
+        double angle = -(2.0 * nibble + temporal_flag) * M_PI / 32.0;
+        circuit.add_rotation(i, angle); // R_Y rotation
+    }
+    
+    // Phase 2: Apply CNOT chain (operations 32-62)
+    // Creates entanglement: CNOT(i, i+1) for i=0..30
+    for (int i = 0; i < NUM_QUBITS - 1; ++i) {
+        circuit.add_cnot(i, i + 1);
+    }
+    
+    // Phase 3: Apply R_Z gates to qubits 1-31 (operations 63-93)
+    // Uses odd-indexed nibbles, same angle formula
+    for (int i = 1; i < NUM_QUBITS; ++i) {
+        uint8_t nibble = nibbles[i * 2 - 1]; // Use odd-indexed nibbles for R_Z
+        double angle = -(2.0 * nibble + temporal_flag) * M_PI / 32.0;
+        circuit.add_rotation(i, angle); // R_Z rotation (need to add support for R_Z)
+    }
     
     return circuit;
 }

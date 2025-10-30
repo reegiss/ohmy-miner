@@ -43,10 +43,10 @@ private:
     // Core mining functions
     void mine_job(const ohmy::pool::WorkPackage& work);
     bool try_nonce(const ohmy::pool::WorkPackage& work, uint32_t nonce);
-    std::string compute_qhash(const std::string& block_header, uint32_t nonce);
+    std::string compute_qhash(const std::string& block_header, uint32_t nonce, uint32_t nTime);
     
     // Quantum circuit generation
-    quantum::QuantumCircuit generate_circuit_from_hash(const std::string& hash_hex);
+    quantum::QuantumCircuit generate_circuit_from_hash(const std::string& hash_hex, uint32_t nTime);
     std::vector<ohmy::Q15> simulate_circuit(const quantum::QuantumCircuit& circuit);
     
     // Hash utilities
