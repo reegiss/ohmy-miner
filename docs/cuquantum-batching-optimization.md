@@ -238,11 +238,12 @@ for (int i = 0; i < n_streams; ++i) {
     custatevecSetStream(handles[i], streams[i]);
 }
 
-// Distribute work across handles
-#pragma omp parallel for
+# Distribute work across streams
 for (int b = 0; b < batch_size; ++b) {
-    int handle_idx = b % n_streams;
-    custatevecApplyPauliRotation(handles[handle_idx], ...);
+    int stream_idx = b % n_streams;
+    cudaStream_t stream = streams[stream_idx];
+    custatevecSetStream(handles[stream_idx], stream);
+    custatevecApplyPauliRotation(handles[stream_idx], ...);
 }
 ```
 

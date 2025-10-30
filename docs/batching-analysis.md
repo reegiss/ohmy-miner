@@ -111,50 +111,42 @@ if (backend_name == "cuquantum") {
 ### 1. Múltiplos Handles cuQuantum ❌
 
 ```cpp
-// Criar handle por stream
+// Create handle per stream
 std::vector<custatevecHandle_t> handles(4);
+std::vector<cudaStream_t> streams(4);
 for (int i = 0; i < 4; ++i) {
     custatevecCreate(&handles[i]);
+    cudaStreamCreate(&streams[i]);
     custatevecSetStream(handles[i], streams[i]);
 }
 
-// Distribuir trabalho
-#pragma omp parallel for
+// Distribute work across streams
 for (int b = 0; b < 128; ++b) {
-    int h = b % 4;
-    custatevecApplyPauliRotation(handles[h], ...);
+    int stream_idx = b % 4;
+    custatevecApplyPauliRotation(handles[stream_idx], ...);
 }
 ```
 
 **Problema**: Cada handle aloca workspace (~100MB) → 4 handles = 400MB overhead.
 
-### 2. Híbrido Custom + cuQuantum ❌
+### 2. Single-State cuQuantum com Streams ✅ **ESCOLHIDO**
 
 ```cpp
-// Custom kernels para gates simples (RY/RZ)
-apply_ry_batched<<<grid, block>>>(d_states_, angles, ...);
+// Stream 1: Processa nonce N
+cudaStream_t compute_stream;
+cudaStreamCreate(&compute_stream);
+custatevecApplyPauliRotation(handle_, state, compute_stream);
 
-// cuQuantum para gates complexos (CNOT)
-for (int b = 0; b < batch_size; ++b) {
-    custatevecApplyMatrix(handle_, state[b], ...);
-}
-```
-
-**Problema**: Transferência CPU→GPU dos angles mata performance.
-
-### 3. Single-State cuQuantum com Pipeline CPU/GPU ✅ **ESCOLHIDO**
-
-```cpp
-// GPU: Processa nonce N
-custatevecApplyPauliRotation(...);
-
-// CPU: Prepara nonce N+1 em paralelo
-prepare_circuit(next_nonce);
+// Stream 2: Transferência nonce N+1 em paralelo
+cudaStream_t transfer_stream;
+cudaStreamCreate(&transfer_stream);
+cudaMemcpyAsync(d_next_circuit, h_next_circuit, size, 
+    cudaMemcpyHostToDevice, transfer_stream);
 ```
 
 **Vantagem**: 
 - Usa otimizações máximas do cuQuantum (float32, kernels otimizados)
-- CPU trabalha em paralelo preparando próximo work
+- Sobreposição de computação e transferência
 - Sem overhead de sincronização entre estados
 
 ## Conclusões
