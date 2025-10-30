@@ -10,6 +10,7 @@ set(TEST_EXECUTABLES
     test_difficulty
     test_quantum_simulator
     test_stratum_messages
+    test_temporal_forks
 )
 
 # Include parent directories for headers
@@ -63,6 +64,20 @@ target_sources(test_quantum_simulator PRIVATE
 # Stratum messages test needs pool implementation
 target_sources(test_stratum_messages PRIVATE
     ${CMAKE_SOURCE_DIR}/src/pool/messages.cpp
+)
+
+# Temporal forks test needs quantum simulator and mining worker
+target_sources(test_temporal_forks PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/mining/qhash_worker.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/circuit.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/cpu_simulator.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/simulator_factory.cpp
+    ${CMAKE_SOURCE_DIR}/src/fixed_point.cpp
+    ${CMAKE_SOURCE_DIR}/src/crypto/sha256d.cpp
+)
+
+target_link_libraries(test_temporal_forks PRIVATE
+    OpenSSL::SSL
 )
 
 # Enable testing
