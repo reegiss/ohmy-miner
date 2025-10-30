@@ -171,14 +171,53 @@ std::string QHashWorker::compute_qhash(const std::string& block_header, [[maybe_
     auto expectations = simulate_circuit(circuit);
     
     // 4. Convert expectations to deterministic fixed-point representation
-    std::stringstream ss;
+    // Each Q15 expectation is 2 bytes (int16_t), 32 qubits = 64 bytes total
+    std::vector<uint8_t> fixed_point_bytes;
+    fixed_point_bytes.reserve(64);
+    
     for (const auto& exp : expectations) {
-        ss << std::hex << std::setfill('0') << std::setw(8) << exp.raw();
+        int16_t raw = static_cast<int16_t>(exp.raw());
+        // Little-endian encoding
+        fixed_point_bytes.push_back(static_cast<uint8_t>(raw & 0xFF));
+        fixed_point_bytes.push_back(static_cast<uint8_t>((raw >> 8) & 0xFF));
     }
     
-    // 5. Final Hash: XOR quantum output with initial hash → SHA256d (Bitcoin standard)
+    // 5. Zero Validation (Fork #1, #2, #3)
+    // Count zero bytes in fixed-point representation
+    int zero_count = 0;
+    for (uint8_t byte : fixed_point_bytes) {
+        if (byte == 0) {
+            zero_count++;
+        }
+    }
+    
+    // Apply temporal validation rules
+    double zero_percentage = (zero_count * 100.0) / fixed_point_bytes.size();
+    
+    // Note: Forks apply cumulatively - later timestamps override earlier ones
+    if (nTime >= 1754220531) {  // Fork #3: Jul 11, 2025 - 25% validation
+        if (zero_percentage < 25.0) {
+            return std::string(64, 'f');
+        }
+    } else if (nTime >= 1753305380) {  // Fork #2: Jun 30, 2025 - 75% validation
+        if (zero_percentage < 75.0) {
+            return std::string(64, 'f');
+        }
+    } else if (nTime >= 1753105444) {  // Fork #1: Jun 28, 2025 - 100% validation
+        if (zero_percentage < 100.0) {
+            return std::string(64, 'f');  // Return invalid hash (all f's)
+        }
+    }
+    
+    // 6. Convert to hex string for XOR operation
+    std::stringstream ss;
+    for (uint8_t byte : fixed_point_bytes) {
+        ss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(byte);
+    }
+    
     std::string quantum_output = ss.str();
     
+    // 7. Final Hash: XOR quantum output with initial hash → SHA256d (Bitcoin standard)
     // XOR the quantum output with seed hash (simplified)
     std::string combined = seed_hash + quantum_output;
     
