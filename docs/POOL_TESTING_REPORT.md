@@ -117,12 +117,15 @@ With GPU streaming: only 4-6GB practical memory usage
 ```
 
 **System Resources**:
-- Available RAM: Typically 8-32GB on consumer hardware
-- Required RAM: 34GB for full state vector (CPU)
-- **Gap**: 2-26GB insufficient
-- **GPU Solution**: Streaming allows 4-6GB usage on consumer GPUs (6GB+)
+- Available RAM: 
+  - Consumer hardware: Typically 8-32GB
+  - Workstations/servers: 64-128GB+ available
+- Required RAM: 34GB (float32) for full state vector (CPU)
+- **Consumer hardware**: 2-26GB insufficient
+- **Workstation/Server**: Technically feasible but inefficient
+- **GPU Solution**: Most practical - streaming allows 4-6GB usage on consumer GPUs (6GB+)
 
-**Result**: CPU mining is **physically impossible** without GPU backend.
+**Result**: CPU mining on **consumer hardware** is impossible. High-end workstations could theoretically work with 64GB+ RAM, but GPU is still vastly more efficient.
 
 ---
 
@@ -147,7 +150,11 @@ With GPU streaming: only 4-6GB practical memory usage
                                          68 GB  ← If using double precision
 ```
 
-**Conclusion**: 32 qubits requires 34GB (float32) or 68GB (double), both beyond typical CPU RAM.
+**Conclusion**: 
+- **Float32 (34GB)**: Feasible on high-end workstations/servers (64GB+ RAM systems)
+- **Double (68GB)**: Beyond typical consumer hardware, requires 128GB+ systems
+- **Consumer hardware (8-32GB)**: Insufficient for either precision on CPU
+- **GPU Solution**: Most practical - streaming allows 4-6GB on consumer GPUs (6GB+)
 
 ---
 
