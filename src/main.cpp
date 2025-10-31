@@ -176,18 +176,17 @@ int main(int argc, char* argv[]) {
         std::vector<std::shared_ptr<ohmy::mining::QHashWorker>> workers;
         
         fmt::print("\n");
-        fmt::print(fg(fmt::color::yellow), "⚠️  WARNING: CPU simulator with 32 qubits requires ~32GB RAM\n");
-        fmt::print(fg(fmt::color::yellow), "   This will likely fail with std::bad_alloc.\n");
-        fmt::print(fg(fmt::color::yellow), "   For production mining, use GPU backend or cuQuantum.\n");
+        fmt::print(fg(fmt::color::yellow), "⚠️  WARNING: CPU simulator with 16 qubits requires ~1MB RAM per worker\n");
+        fmt::print(fg(fmt::color::yellow), "   CPU simulation is SLOW - for production mining, use GPU backend.\n");
         fmt::print(fg(fmt::color::yellow), "   Current implementation validates consensus logic only.\n\n");
         
         for (int i = 0; i < num_workers; ++i) {
             try {
-                // Create quantum simulator for each worker (32 qubits for official qhash spec)
-                // NOTE: CPU_BASIC backend allocates 2^32 complex amplitudes = ~32GB RAM
-                // This is NOT viable for production - GPU/cuQuantum required
+                // Create quantum simulator for each worker (16 qubits for official qhash spec)
+                // NOTE: CPU_BASIC backend allocates 2^16 complex amplitudes = ~1MB RAM
+                // This is viable but SLOW - GPU/cuQuantum required for competitive mining
                 auto simulator = ohmy::quantum::SimulatorFactory::create(
-                    ohmy::quantum::SimulatorFactory::Backend::CPU_BASIC, 32);
+                    ohmy::quantum::SimulatorFactory::Backend::CPU_BASIC, 16);
                 
                 // Create worker
                 auto worker = std::make_shared<ohmy::mining::QHashWorker>(
@@ -202,13 +201,13 @@ int main(int argc, char* argv[]) {
                 dispatcher->add_worker(worker);
                 workers.push_back(worker);
             } catch (const std::bad_alloc& e) {
-                fmt::print(fg(fmt::color::red), "\n❌ FATAL: Cannot allocate 32-qubit state vector on CPU\n");
-                fmt::print(fg(fmt::color::red), "   Required: ~32GB RAM for 2^32 complex amplitudes\n");
-                fmt::print(fg(fmt::color::red), "   Solution: Use GPU backend or cuQuantum for production mining\n\n");
+                fmt::print(fg(fmt::color::red), "\n❌ FATAL: Cannot allocate 16-qubit state vector on CPU\n");
+                fmt::print(fg(fmt::color::red), "   Required: ~1MB RAM for 2^16 complex amplitudes\n");
+                fmt::print(fg(fmt::color::red), "   This should NOT happen - check system memory\n\n");
                 fmt::print("Technical details:\n");
-                fmt::print("  - qhash requires 32 qubits (official spec)\n");
-                fmt::print("  - CPU simulator needs 2^32 × 16 bytes = 68GB memory\n");
-                fmt::print("  - GPU can handle this efficiently with batching\n");
+                fmt::print("  - qhash requires 16 qubits (official spec)\n");
+                fmt::print("  - CPU simulator needs 2^16 × 16 bytes = 1MB memory\n");
+                fmt::print("  - GPU will be much faster for production mining\n");
                 fmt::print("  - Temporal forks implementation is CORRECT\n");
                 fmt::print("  - All tests pass - consensus logic validated ✓\n\n");
                 return 1;

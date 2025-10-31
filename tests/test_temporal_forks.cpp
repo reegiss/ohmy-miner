@@ -31,8 +31,8 @@ WorkPackage create_test_work(const std::string& time_hex) {
 void test_temporal_flag_before_fork4() {
     std::cout << "Testing temporal flag BEFORE Fork #4 (nTime < 1758762000)..." << std::endl;
     
-    // NOTE: Cannot create full 32-qubit simulator on CPU (requires 32GB RAM)
-    // This test validates the logic without full simulation
+    // NOTE: Full 16-qubit simulator requires ~1MB RAM (viable on CPU)
+    // This test validates the logic without full simulation for speed
     
     // Test the temporal flag logic directly
     uint32_t nTime_before = 1758762000 - 1000;  // Before fork

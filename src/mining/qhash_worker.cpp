@@ -261,7 +261,7 @@ quantum::QuantumCircuit QHashWorker::generate_circuit_from_hash(const std::strin
         nibbles.push_back(0);
     }
     
-    // Phase 1: Apply R_Y gates to all 32 qubits (operations 0-31)
+    // Phase 1: Apply R_Y gates to all 16 qubits (operations 0-15)
     // Formula: angle = -(2*nibble + temporal_flag) * π/32
     for (int i = 0; i < NUM_QUBITS; ++i) {
         uint8_t nibble = nibbles[i * 2]; // Use even-indexed nibbles for R_Y
