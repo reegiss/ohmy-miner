@@ -36,7 +36,7 @@ constexpr int NUM_QUBITS = 32;  // ← ERRADO!
 
 **Impacto:**
 - Circuito com 2× o tamanho correto
-- Complexidade exponencial incorreta: 2^32 vs 2^16
+- Complexidade exponencial incorreta: 2^16 vs 2^16
 - Estado quântico 65,536× maior que o necessário
 
 ---
@@ -84,8 +84,8 @@ const std::size_t stateVecSizeBytes = (1 << nQubits) * sizeof(cuDoubleComplex);
 ```
 
 **Nossos Cálculos Incorretos:**
-- Documentação atual: "34 GB" (baseado em 32 qubits, float32)
-- Documentação atual: "68 GB" (baseado em 32 qubits, double)
+- Documentação atual: "1 MB" (baseado em 16 qubits, float32)
+- Documentação atual: "1 MB" (baseado em 16 qubits, double)
 - **Erro**: 34,000× a 68,000× maior que o real!
 
 **Memória Real Necessária:**
@@ -162,7 +162,7 @@ else if (nTime >= 1753105444) { /* 100% */ }
   ```
 
 **Impacto:**
-- Reduz complexidade de 2^32 para 2^16
+- Reduz complexidade de 2^16 para 2^16
 - Memória: de GB para KB
 - Tempo de simulação: redução exponencial
 
@@ -173,7 +173,7 @@ else if (nTime >= 1753105444) { /* 100% */ }
 - `src/mining/qhash_worker.cpp:174` (comentário)
   ```cpp
   // ANTES:
-  // Each Q15 expectation is 2 bytes (int16_t), 32 qubits = 64 bytes total
+  // Each Q15 expectation is 2 bytes (int16_t), 16 qubits = 64 bytes total
   
   // DEPOIS:
   // Each Q15 expectation is 2 bytes (int16_t), 16 qubits = 32 bytes total
@@ -192,7 +192,7 @@ else if (nTime >= 1753105444) { /* 100% */ }
 
 ```cpp
 // ANTES:
-// Official qhash specification: 32 qubits, 94 operations (32 R_Y + 31 CNOT + 31 R_Z)
+// Official qhash specification: 16 qubits, 94 operations (32 R_Y + 31 CNOT + 31 R_Z)
 
 // DEPOIS:
 // Official qhash specification: 16 qubits, 2 layers
@@ -211,8 +211,8 @@ else if (nTime >= 1753105444) { /* 100% */ }
 **Arquivos a Atualizar:**
 
 1. **README.md**
-   - Buscar e substituir: "32 qubits" → "16 qubits"
-   - Buscar e substituir: "34 GB" / "68 GB" → "1 MB (double) / 512 KB (float)"
+   - Buscar e substituir: "16 qubits" → "16 qubits"
+   - Buscar e substituir: "1 MB" / "1 MB" → "1 MB (double) / 512 KB (float)"
 
 2. **docs/CUDA_IMPLEMENTATION_PLAN.md**
    - Atualizar todos os cálculos de memória
@@ -371,7 +371,7 @@ Este documento contém **apenas informações extraídas do código fonte oficia
 ### 3. **Impacto das Correções**
 - **Positivo**: Redução dramática de complexidade e requisitos
 - **Positivo**: Viabilidade em GPUs consumer-grade
-- **Risco**: Código existente pode ter dependências em 32 qubits
+- **Risco**: Código existente pode ter dependências em 16 qubits
 
 ### 4. **Próximos Passos**
 1. Revisar este plano

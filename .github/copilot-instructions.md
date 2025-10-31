@@ -778,31 +778,39 @@ Our goal is to create a highly efficient GPU miner that maximizes hardware utili
 
 **Performance Goals by Implementation Phase:**
 
-1. **Basic Implementation (Current):**
-   - Custom CUDA backend: ~300 H/s (double precision)
-   - cuQuantum backend: ~3,000+ H/s (float32, optimized)
-   - GPU-based batched nonce processing
+1. **Basic Implementation (Current - 16 qubits, 1MB state):**
+   - Custom CUDA backend: ~500-1,000 H/s (double precision)
+   - cuQuantum backend: ~5,000-10,000 H/s (float32, optimized)
+   - GPU-based batched nonce processing (1000+ nonces in parallel)
    - Initial profiling and bottleneck identification
+   - **Memory**: Only 1MB per state vector (2^16 amplitudes)
 
 2. **Optimization Phase 1 (Gate Fusion):**
    - Target: 10-15x speedup from baseline
-   - Gate fusion (66 → 2 kernels)
+   - Gate fusion (47 → 2 kernels per layer)
    - CNOT chain with shared memory
-   - Basic batching implementation
+   - Advanced batching (2000+ nonces)
    - Memory access pattern optimization
+   - **Memory advantage**: Can batch 10,000+ states on 12GB GPU
 
 3. **Optimization Phase 2 (Parallel Processing):**
-   - Target: Additional 2-3x speedup
-   - 64-128 nonces in parallel
+   - Target: Additional 2-3x speedup  
+   - 2000-5000 nonces in parallel
    - Triple-buffered CUDA streams
    - Hierarchical measurement reduction
    - Memory-optimized state vectors
+   - **Peak batching**: 20,000+ nonces on RTX 4090 (24GB)
 
-**Competitive Analysis:**
-- Current hashrates on RTX 4090:
-  - Basic implementation: 150-250 H/s
-  - Optimized implementation: 900-1500 H/s
-  - Target for full optimization: 3,000-5,000 H/s
+**Competitive Analysis (16 qubits = 1MB per state):**
+- Target hashrates on RTX 4090:
+  - Basic implementation: 1,000-2,000 H/s
+  - Optimized implementation: 10,000-20,000 H/s
+  - Target for full optimization: 30,000-50,000 H/s
+  
+- Consumer GPU viability:
+  - GTX 1660 Super (6GB): 5,000+ nonces, ~5,000-10,000 H/s
+  - RTX 3060 (12GB): 10,000+ nonces, ~10,000-20,000 H/s
+  - RTX 4090 (24GB): 20,000+ nonces, ~30,000-50,000 H/s
 
 **Success Metrics & Performance Requirements:**
 

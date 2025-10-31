@@ -15,7 +15,7 @@ Nossa implementação está **COMPATÍVEL COM CONSENSO** após correção de tod
 - ✅ Validação de zeros implementada
 - ✅ Hash final confirmado (SHA256d)
 - ✅ Propagação de nTime completa
-- ⚠️ **GPU backend necessário** para mineração (CPU requer 34GB RAM)
+- ⚠️ **GPU backend necessário** para mineração (CPU requer 1MB RAM)
 
 **Status dos Forks:**
 - **Fork 1:** ✅ ATIVO desde 28/06/2025 - validação zeros total
@@ -173,7 +173,7 @@ BlockHeader {nTime}
 **Implementação CUDA/GPU:**
 - Temporal forks estão corretos
 - Pool aceita shares (validado)
-- **Bloqueio atual**: CPU requer 34GB RAM (2^32 amplitudes × 8 bytes float32)
+- **Bloqueio atual**: CPU requer 1MB RAM (2^16 amplitudes × 8 bytes float32)
 - **Solução**: Implementar backend GPU com cuQuantum SDK
 
 **Timeline GPU:**
@@ -219,7 +219,7 @@ Pool connectivity: ✅ Funcional
 Shares validation: ✅ Correto (lógica)
 
 Mining capability: ⚠️ CPU bloqueado por memória
-  - CPU requer: 34 GB RAM (2^32 × 8 bytes float32)
+  - CPU requer: 1 MB RAM (2^16 × 8 bytes float32)
   - Hardware típico: 8-32 GB
   - Solução: GPU backend necessário
 
@@ -268,7 +268,7 @@ Todas as correções de consenso foram implementadas com sucesso:
 **Mining Status: ⚠️ GPU BACKEND NECESSÁRIO**
 
 A lógica de consenso está correta, mas:
-- CPU não pode alocar 34GB para 32 qubits
+- CPU não pode alocar 1MB para 16 qubits
 - GPU backend é obrigatório para mineração real
 - Planejamento CUDA/cuQuantum em andamento
 

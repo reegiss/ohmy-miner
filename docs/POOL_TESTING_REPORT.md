@@ -13,7 +13,7 @@
 **Pool Connectivity**: ✅ **WORKING**  
 **Production Mining**: ❌ **BLOCKED BY CPU MEMORY**
 
-The temporal forks implementation is **mathematically and logically correct**, with all 12 unit tests passing. However, production mining is blocked by CPU memory limitations (32 qubits require ~68GB RAM). **GPU backend is mandatory for actual mining.**
+The temporal forks implementation is **mathematically and logically correct**, with all 12 unit tests passing. However, production mining is blocked by CPU memory limitations (16 qubits require ~68GB RAM). **GPU backend is mandatory for actual mining.**
 
 ---
 
@@ -92,12 +92,12 @@ Consensus implementation is correct and ready for production.
 **Error**:
 ```
 ❌ FATAL: Cannot allocate 32-qubit state vector on CPU
-   Required: ~34GB RAM for 2^32 complex amplitudes (float32)
+   Required: ~34GB RAM for 2^16 complex amplitudes (float32)
    Solution: Use GPU backend with cuQuantum for production mining
 
 Technical details:
-  - qhash requires 32 qubits (official spec)
-  - CPU simulator needs 2^32 × 8 bytes (float32) = 34GB memory
+  - qhash requires 16 qubits (official spec)
+  - CPU simulator needs 2^16 × 8 bytes (float32) = 34GB memory
   - GPU can handle this efficiently with streaming (4-6GB practical usage)
   - Temporal forks implementation is CORRECT
   - All tests pass - consensus logic validated ✓
@@ -107,10 +107,10 @@ Technical details:
 ```cpp
 // State vector size calculation (using float32/cuComplex):
 num_qubits = 32
-num_amplitudes = 2^32 = 4,294,967,296
+num_amplitudes = 2^16 = 4,294,967,296
 bytes_per_amplitude = 8 (cuComplex / std::complex<float>)
 total_memory = 4,294,967,296 × 8 = 34,359,738,368 bytes
-             = ~34 GB RAM (base requirement)
+             = ~1 MB RAM (base requirement)
 
 Note: Official implementation uses CUDA_C_32F (float32 precision)
 With GPU streaming: only 4-6GB practical memory usage
@@ -134,7 +134,7 @@ With GPU streaming: only 4-6GB practical memory usage
 ### Why CPU Cannot Work
 
 **Qubitcoin qhash Specification**:
-- **32 qubits** (non-negotiable for consensus)
+- **16 qubits** (non-negotiable for consensus)
 - **94 quantum operations** (32 R_Y + 31 CNOT + 31 R_Z)
 - State vector grows exponentially: O(2^n) where n = num_qubits
 
@@ -146,8 +146,8 @@ With GPU streaming: only 4-6GB practical memory usage
 20 qubits → 2^20 = 1,048,576          = 8 MB
 24 qubits → 2^24 = 16,777,216         = 128 MB
 28 qubits → 2^28 = 268,435,456        = 2 GB
-32 qubits → 2^32 = 4,294,967,296      = 34 GB ← REQUIRED (float32)
-                                         68 GB  ← If using double precision
+16 qubits → 2^16 = 4,294,967,296      = 1 MB ← REQUIRED (float32)
+                                         1 MB  ← If using double precision
 ```
 
 **Conclusion**: 
@@ -180,7 +180,7 @@ With GPU streaming: only 4-6GB practical memory usage
 
 **Practical Memory Usage (GPU)**:
 ```
-Base requirement:    34 GB (single state vector, float32)
+Base requirement:    1 MB (single state vector, float32)
 With streaming:      4-6 GB (single nonce + workspace)
 Consumer GPU (6GB):  ✅ VIABLE (GTX 1660 Super confirmed)
 Mid-range (12GB):    ✅ COMFORTABLE (2-3 nonces in parallel)
@@ -217,7 +217,7 @@ WildRig Reference:   36,000,000 H/s (36.81 MH/s on GTX 1660 Super)
    - Fork #3 (1754220531): 25% threshold ✓
 
 4. **Circuit Architecture**:
-   - 32 qubits (not 4) ✓
+   - 16 qubits (not 4) ✓
    - 94 operations (32 R_Y + 31 CNOT + 31 R_Z) ✓
    - 64 nibbles (4-bit values) ✓
 
@@ -310,7 +310,7 @@ WildRig Reference:   36,000,000 H/s (36.81 MH/s on GTX 1660 Super)
 
 1. ⚠️ **DO NOT deploy CPU backend** - Will crash with out-of-memory
 2. ✅ **Consensus logic is correct** - Can proceed with GPU development
-3. 📊 **GPU backend is mandatory** - No workaround for 32 qubits
+3. 📊 **GPU backend is mandatory** - No workaround for 16 qubits
 
 ### Short-term (1-4 weeks)
 
@@ -340,7 +340,7 @@ WildRig Reference:   36,000,000 H/s (36.81 MH/s on GTX 1660 Super)
 **Pool Integration**: ✅ **WORKING PERFECTLY**  
 **Mining Capability**: ❌ **REQUIRES GPU BACKEND**
 
-The implementation of all 4 critical consensus bugs is **correct and validated**. The miner successfully connects to the pool, receives jobs, and parses all parameters correctly. However, actual mining is blocked by the physical impossibility of simulating 32 qubits on CPU (68GB RAM required).
+The implementation of all 4 critical consensus bugs is **correct and validated**. The miner successfully connects to the pool, receives jobs, and parses all parameters correctly. However, actual mining is blocked by the physical impossibility of simulating 16 qubits on CPU (68GB RAM required).
 
 **Bottom Line**: 
 - ✅ Consensus implementation: CORRECT
@@ -400,17 +400,17 @@ Nibbles: 64 (from 32-byte SHA256 hash)
 ```cpp
 // Float32 precision (official implementation uses CUDA_C_32F)
 sizeof(cuComplex) = 8 bytes  // or std::complex<float>
-num_amplitudes = 2^32 = 4,294,967,296
+num_amplitudes = 2^16 = 4,294,967,296
 total_memory = 4,294,967,296 × 8 bytes
              = 34,359,738,368 bytes
-             = 34 GB base requirement
+             = 1 MB base requirement
              = 4-6 GB with streaming (GPU)
              = VIABLE on consumer GPUs (6GB+)
 
 // Double precision (not used by official implementation)
 sizeof(cuDoubleComplex) = 16 bytes
 total_memory = 4,294,967,296 × 16 bytes  
-             = 68 GB
+             = 1 MB
              = INFEASIBLE on CPU and consumer GPUs
 ```
 

@@ -1,36 +1,43 @@
 # CUDA Quantum Simulator Implementation Plan
 
-**Target**: GPU-accelerated 32-qubit quantum circuit simulation for qhash mining  
-**Date**: October 30, 2025  
+**Target**: GPU-accelerated 16-qubit quantum circuit simulation for qhash mining  
+**Date**: October 30, 2025 (Updated after official spec validation)  
 **Priority**: 🔴 CRITICAL - Required for production mining  
-**Estimated Timeline**: 4-8 weeks (3 phases)
+**Estimated Timeline**: 2-4 weeks (3 phases)
 
 ---
 
 ## Executive Summary
 
-### Current Blocker
-CPU simulation of 32 qubits requires **68GB RAM** (2^32 amplitudes × 16 bytes), making it physically impossible on consumer hardware. GPU implementation is **mandatory** for production mining.
+### ✅ Breakthrough Discovery
+Official specification analysis revealed qhash uses **16 qubits** (not 32), requiring only **1MB RAM** per state vector (double precision) or **512KB** (float32 precision). This makes GPU implementation trivial and even CPU mining viable!
+
+**Critical Correction**: Previous documentation incorrectly stated 16 qubits / 34-68GB. Official repositories (super-quantum/qubitcoin and qubitcoin-miner) confirm **16 qubits**.
 
 ### Solution Architecture
 Implement CUDA kernels for quantum state simulation with batched nonce processing, leveraging GPU's:
-- **Massive memory**: 24-80GB on datacenter GPUs
-- **Parallel processing**: Thousands of CUDA cores
-- **High bandwidth**: 2TB/s vs CPU's 100GB/s
+- **Minimal memory**: 1MB per state vector (float32: 512KB)
+- **Massive batching**: Can process 1000+ nonces in parallel on consumer GPUs
+- **High bandwidth**: 2TB/s memory bandwidth for rapid state updates
 
 ### Performance Targets
 ```
-Phase 1 (Basic):     300-500 H/s      (Single nonce, unoptimized)
-Phase 2 (Batched):   1,000-2,000 H/s  (64-128 nonces parallel)
-Phase 3 (cuQuantum): 3,000-10,000 H/s (Optimized library)
+Phase 1 (Basic):     500-1,000 H/s     (Single nonce, unoptimized)
+Phase 2 (Batched):   5,000-15,000 H/s  (1000+ nonces parallel)
+Phase 3 (cuQuantum): 10,000-30,000 H/s (Optimized library + batching)
 ```
+
+**Hardware Viability**: 
+- RTX 3060 (12GB): ~10,000 nonces in parallel
+- RTX 4090 (24GB): ~20,000 nonces in parallel  
+- Even GTX 1660 Super (6GB): ~6,000 nonces in parallel!
 
 ---
 
-## Phase 1: Basic CUDA Backend (Weeks 1-2)
+## Phase 1: Basic CUDA Backend (Week 1)
 
 ### Goal
-Implement functional 32-qubit quantum simulator on GPU with single-nonce processing.
+Implement functional 16-qubit quantum simulator on GPU with single-nonce processing.
 
 ### 1.1 Memory Management
 
@@ -41,7 +48,7 @@ Implement functional 32-qubit quantum simulator on GPU with single-nonce process
 class CudaQuantumSimulator : public IQuantumSimulator {
 private:
     // GPU memory for quantum state (FLOAT32 for memory efficiency)
-    cuComplex* d_state_;            // Device: 2^32 complex amplitudes (float32)
+    cuComplex* d_state_;            // Device: 2^16 complex amplitudes (float32)
     cuComplex* d_workspace_;        // Scratch space for operations
     
     // Host-side pinned memory for transfers
@@ -66,11 +73,11 @@ public:
 
 **Memory Layout** (CORRECTED):
 ```
-32 qubits → 2^32 amplitudes
+16 qubits → 2^16 amplitudes
          → 4,294,967,296 × sizeof(cuComplex)
          → 4,294,967,296 × 8 bytes (float32 complex)
          → 34,359,738,368 bytes
-         → ~34 GB (not 68 GB!)
+         → ~512 KB (float32) / 1 MB (double) (not 1 MB (double) / 512 KB (float32)!)
 
 With optimizations:
   - Single nonce: ~4-5 GB (state + workspace)
@@ -90,9 +97,9 @@ With optimizations:
 #### Code Example (CORRECTED)
 ```cpp
 void CudaQuantumSimulator::allocate_state_vector() {
-    size_t num_amplitudes = 1ULL << num_qubits_;  // 2^32
+    size_t num_amplitudes = 1ULL << num_qubits_;  // 2^16
     // CRITICAL: Use cuComplex (8 bytes) not cuDoubleComplex (16 bytes)
-    size_t state_size = num_amplitudes * sizeof(cuComplex);  // 34 GB not 68 GB
+    size_t state_size = num_amplitudes * sizeof(cuComplex);  // 512 KB (float32) / 1 MB (double) not 1 MB (double) / 512 KB (float32)
     
     // Check GPU memory availability
     size_t free_mem, total_mem;
@@ -304,7 +311,7 @@ double CudaQuantumSimulator::compute_expectation(int qubit) {
 
 **Implementation Tasks**:
 - [ ] Hierarchical reduction kernel
-- [ ] Multiple qubit measurement (32 qubits)
+- [ ] Multiple qubit measurement (16 qubits)
 - [ ] Fixed-point conversion (Q15 format)
 - [ ] Zero validation logic
 
@@ -406,7 +413,7 @@ void test_rotation_gate_correctness() {
 }
 
 void test_qhash_circuit() {
-    std::cout << "Testing full qhash circuit (32 qubits, 94 ops)..." << std::endl;
+    std::cout << "Testing full qhash circuit (16 qubits, 94 ops)..." << std::endl;
     
     auto sim = SimulatorFactory::create(
         SimulatorFactory::Backend::CUDA_BASIC, 32);
@@ -417,7 +424,7 @@ void test_qhash_circuit() {
     auto start = std::chrono::high_resolution_clock::now();
     sim->simulate(circuit);
     auto expectations = sim->measure_expectations(
-        std::vector<int>(32));  // All 32 qubits
+        std::vector<int>(32));  // All 16 qubits
     auto end = std::chrono::high_resolution_clock::now();
     
     double elapsed_ms = std::chrono::duration<double, std::milli>(
@@ -432,7 +439,7 @@ void test_qhash_circuit() {
 **Test Coverage**:
 - [ ] Memory allocation/deallocation
 - [ ] Single gate correctness (R_Y, R_Z, CNOT)
-- [ ] Full circuit simulation (32 qubits, 94 ops)
+- [ ] Full circuit simulation (16 qubits, 94 ops)
 - [ ] Expectation value accuracy
 - [ ] Fixed-point conversion
 - [ ] Performance benchmarking
@@ -452,7 +459,7 @@ private:
     static constexpr int BATCH_SIZE = 64;  // 64 nonces in parallel
     
     // Batched state vectors (FLOAT32 VERSION!)
-    cuComplex* d_batched_states_;  // [BATCH_SIZE][2^32] @ 8 bytes each
+    cuComplex* d_batched_states_;  // [BATCH_SIZE][2^16] @ 8 bytes each
     
     // Batch management
     std::vector<uint32_t> batch_nonces_;
@@ -470,8 +477,8 @@ public:
 
 **Memory Requirements (CORRECTED for float32)**:
 ```
-Single state:  34 GB (not 68!)
-Batch of 64:   34 GB × 64 = 2,176 GB (2.2 TB)
+Single state:  512 KB (float32) / 1 MB (double) (not 68!)
+Batch of 64:   512 KB (float32) / 1 MB (double) × 64 = 2,176 GB (2.2 TB)
 
 Solution: Process sequentially but overlap computation
          OR use multiple GPUs
@@ -922,16 +929,16 @@ Expected: 100+ MH/s (industrial scale)
 **The Secret**: Use **float32 (cuComplex)** instead of double precision:
 
 ```cpp
-// OLD (Wrong): 68 GB required
+// OLD (Wrong): 1 MB (double) / 512 KB (float32) required
 cuDoubleComplex* state;  // 16 bytes per amplitude
-2^32 × 16 = 68,719,476,736 bytes = 68 GB
+2^16 × 16 = 68,719,476,736 bytes = 1 MB (double) / 512 KB (float32)
 
-// NEW (Correct): 34 GB required  
+// NEW (Correct): 512 KB (float32) / 1 MB (double) required  
 cuComplex* state;        // 8 bytes per amplitude (float32 complex)
-2^32 × 8 = 34,359,738,368 bytes = 34 GB
+2^16 × 8 = 34,359,738,368 bytes = 512 KB (float32) / 1 MB (double)
 
 // With single-nonce streaming: Only 4-5 GB needed!
-- State vector: 34 GB (one at a time)
+- State vector: 512 KB (float32) / 1 MB (double) (one at a time)
 - Workspace buffers: 1-2 GB
 - Streaming/reuse: Fits in 6GB GPU ✅
 ```

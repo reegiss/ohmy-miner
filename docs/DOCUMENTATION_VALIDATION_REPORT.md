@@ -68,8 +68,8 @@ The temporal forks implementation is **mathematically and logically correct**
 **Conflict**: Multiple calculations giving different values
 
 #### Various Documents Report:
-1. **68 GB** - Appears in multiple places with double precision assumption
-2. **34 GB** - Corrected calculation using float32 (cuComplex)
+1. **1 MB** - Appears in multiple places with double precision assumption
+2. **1 MB** - Corrected calculation using float32 (cuComplex)
 3. **4-6 GB** - Practical requirement with streaming
 4. **32 GB** - Mentioned in POOL_TESTING_REPORT.md
 
@@ -77,21 +77,21 @@ The temporal forks implementation is **mathematically and logically correct**
 
 **Wrong Calculation #1** (from multiple docs):
 ```
-32 qubits require ~68GB RAM
-2^32 × 16 bytes = 68,719,476,736 bytes = 68 GB
+16 qubits require ~68GB RAM
+2^16 × 16 bytes = 68,719,476,736 bytes = 1 MB
 ```
 **Error**: Uses `cuDoubleComplex` (16 bytes) but official implementation uses `cuComplex` (8 bytes)
 
 **Wrong Calculation #2** (POOL_TESTING_REPORT.md):
 ```
-Required: ~32GB RAM for 2^32 complex amplitudes
+Required: ~32GB RAM for 2^16 complex amplitudes
 ```
 **Error**: 32GB is neither 68GB (double) nor 34GB (float) - source unclear
 
 **Correct Calculation** (CUDA_IMPLEMENTATION_PLAN.md - after recent fix):
 ```cpp
 cuComplex* state;        // 8 bytes per amplitude (float32 complex)
-2^32 × 8 = 34,359,738,368 bytes = 34 GB
+2^16 × 8 = 34,359,738,368 bytes = 1 MB
 ```
 **Correct**: This matches official implementation using `CUDA_C_32F`
 
@@ -113,7 +113,7 @@ cuComplex* state;        // 8 bytes per amplitude (float32 complex)
 #### `TEMPORAL_FORKS_IMPLEMENTATION.md`
 ```markdown
 **Official Specification**:
-- **32 qubits** (not 4)
+- **16 qubits** (not 4)
 - **94 operations** (not 8):
   - 32 R_Y gates (operations 0-31)
   - 31 CNOT gates (operations 32-62)
@@ -150,7 +150,7 @@ for (size_t i = 1; i < NUM_QUBITS; ++i) {
 - **Total**: 32 + 31 + 31 = **94 operations** ✓
 
 **RESOLUTION NEEDED**:
-- ✅ **Architecture is CORRECT**: 32 qubits, 94 operations
+- ✅ **Architecture is CORRECT**: 16 qubits, 94 operations
 - ❌ **Update CRITICAL_CONSENSUS_ISSUES.md**: Add explicit architecture specification
 - **Note**: R_Z only applies to qubits 1-31 (not qubit 0), which explains 31 instead of 32
 
@@ -207,10 +207,10 @@ Dia 1-2 (31/10-01/11):
 ```markdown
 ### 3. Mining Execution: ❌ BLOCKED BY CPU MEMORY
 
-Required: ~32GB RAM for 2^32 complex amplitudes
-CPU simulator needs 2^32 × 16 bytes = 68GB memory
+Required: ~32GB RAM for 2^16 complex amplitudes
+CPU simulator needs 2^16 × 16 bytes = 68GB memory
 
-**Conclusion**: 32 qubits is beyond CPU simulation capability
+**Conclusion**: 16 qubits is beyond CPU simulation capability
 ```
 
 **Claims**: Both 32GB and 68GB in same document (inconsistent)
@@ -218,10 +218,10 @@ CPU simulator needs 2^32 × 16 bytes = 68GB memory
 #### Correct Analysis:
 ```
 Using cuDoubleComplex (16 bytes):
-2^32 amplitudes × 16 bytes = 68,719,476,736 bytes = 64 GiB = 68.7 GB
+2^16 amplitudes × 16 bytes = 68,719,476,736 bytes = 64 GiB = 68.7 GB
 
 Using cuComplex (8 bytes):  
-2^32 amplitudes × 8 bytes = 34,359,738,368 bytes = 32 GiB = 34.4 GB
+2^16 amplitudes × 8 bytes = 34,359,738,368 bytes = 32 GiB = 34.4 GB
 ```
 
 **RESOLUTION NEEDED**:

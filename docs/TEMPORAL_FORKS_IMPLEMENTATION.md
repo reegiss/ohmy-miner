@@ -56,7 +56,7 @@ WorkPackage.time (hex string)
 **Problem**: Simplified 4-qubit/8-operation implementation doesn't match specification.
 
 **Official Specification**:
-- **32 qubits** (not 4)
+- **16 qubits** (not 4)
 - **94 operations** (not 8):
   - 32 R_Y gates (operations 0-31)
   - 31 CNOT gates (operations 32-62)
@@ -71,7 +71,7 @@ quantum::QuantumCircuit circuit(NUM_QUBITS);
 // Extract 64 nibbles (4-bit values)
 std::vector<uint8_t> nibbles;  // 64 nibbles from hex string
 
-// Phase 1: R_Y gates on all 32 qubits (even nibbles)
+// Phase 1: R_Y gates on all 16 qubits (even nibbles)
 for (int i = 0; i < NUM_QUBITS; ++i) {
     uint8_t nibble = nibbles[i * 2];
     double angle = -(2.0 * nibble + temporal_flag) * M_PI / 32.0;
@@ -117,7 +117,7 @@ else if (nTime >= 1753105444)  // Fork #1: Jun 28, 2025
 
 **Implementation** (`src/mining/qhash_worker.cpp:184-203`):
 ```cpp
-// Convert Q15 fixed-point to bytes (32 qubits × 2 bytes = 64 bytes)
+// Convert Q15 fixed-point to bytes (16 qubits × 2 bytes = 64 bytes)
 std::vector<uint8_t> fixed_point_bytes;
 for (const auto& exp : expectations) {
     int16_t raw = static_cast<int16_t>(exp.raw());
@@ -185,7 +185,7 @@ std::vector<uint8_t> QHashWorker::sha256d_raw(const std::vector<uint8_t>& input)
 - ✅ `test_zero_validation_fork3()` - 25% requirement (Jul 11)
 
 #### 3. Architecture Tests
-- ✅ `test_circuit_size()` - 32 qubits, 94 operations
+- ✅ `test_circuit_size()` - 16 qubits, 94 operations
 - ✅ `test_nibble_extraction()` - 64 nibbles (4-bit values)
 
 #### 4. Formula Validation Tests
@@ -263,7 +263,7 @@ Range: [-π/32, -31π/32]
 
 **Circuit Complexity**:
 - **Before**: 4 qubits × 8 ops = 32 quantum operations
-- **After**: 32 qubits × 94 ops = 3,008 quantum operations
+- **After**: 16 qubits × 94 ops = 3,008 quantum operations
 - **Impact**: ~100x increase in simulation time per nonce
 - **Mitigation**: Batched GPU processing, cuQuantum optimization
 
