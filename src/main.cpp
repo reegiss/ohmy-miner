@@ -36,12 +36,14 @@ void print_usage(const std::string& message = "") {
         "  --url URL         Pool URL (required, format: hostname:port)\n"
         "  --user WALLET     Wallet address for mining rewards (required)\n"
         "  --pass PASSWORD   Pool password (default: x)\n"
+        "  --diff DIFFICULTY Static difficulty (optional, e.g., 60K, 1M)\n"
         "  --help           Show this help message\n"
         "\n"
         "Example:\n"
         "  ohmy-miner --algo qhash \\\n"
         "            --url qubitcoin.luckypool.io:8610 \\\n"
         "            --user bc1q...wallet... \\\n"
+        "            --diff 60K \\\n"
         "            --pass x\n"
         "\n"
     );
@@ -53,6 +55,7 @@ struct MinerParams {
     std::string url;
     std::string user;
     std::string pass;
+    std::string diff;
 
     bool validate() const {
         if (algo.empty() || algo != "qhash") {
@@ -86,6 +89,8 @@ MinerParams parse_command_line(int argc, char* argv[]) {
              cxxopts::value<std::string>())
             ("pass", "Pool password", 
              cxxopts::value<std::string>()->default_value("x"))
+            ("diff", "Static difficulty (optional, e.g., 60K, 1M)", 
+             cxxopts::value<std::string>()->default_value(""))
             ("help", "Show help");
 
         auto result = options.parse(argc, argv);
@@ -100,6 +105,7 @@ MinerParams parse_command_line(int argc, char* argv[]) {
         if (result.count("url")) params.url = result["url"].as<std::string>();
         if (result.count("user")) params.user = result["user"].as<std::string>();
         if (result.count("pass")) params.pass = result["pass"].as<std::string>();
+        if (result.count("diff")) params.diff = result["diff"].as<std::string>();
 
     } catch (const std::exception& e) {
         print_usage(fmt::format("Error parsing options: {}", e.what()));
@@ -131,9 +137,27 @@ int main(int argc, char* argv[]) {
     // Create job monitor
         auto monitor = std::make_shared<ohmy::pool::JobMonitor>(work_manager, dispatcher);
 
+        // Format username with static difficulty if provided
+        // Pool format: ADDRESS=DIFF.WORKER or ADDRESS=DIFF
+        std::string formatted_user = params.user;
+        if (!params.diff.empty()) {
+            // Check if user already has a worker suffix (e.g., wallet.worker)
+            size_t dot_pos = formatted_user.find('.');
+            if (dot_pos != std::string::npos) {
+                // wallet.worker -> wallet=DIFF.worker
+                std::string wallet = formatted_user.substr(0, dot_pos);
+                std::string worker = formatted_user.substr(dot_pos + 1);
+                formatted_user = fmt::format("{}={}.{}", wallet, params.diff, worker);
+            } else {
+                // wallet -> wallet=DIFF
+                formatted_user = fmt::format("{}={}", params.user, params.diff);
+            }
+            ohmy::log::line("Using static difficulty: {} (formatted as: {})", params.diff, formatted_user);
+        }
+
         // Create and configure stratum client
         auto stratum = std::make_shared<ohmy::pool::StratumClient>(
-            io_context, params.url, params.user, params.pass);
+            io_context, params.url, formatted_user, params.pass);
 
         // Set work callback to add jobs to queue
         stratum->set_work_callback([work_manager](const ohmy::pool::WorkPackage& work) {

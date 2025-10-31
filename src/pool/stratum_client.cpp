@@ -269,6 +269,15 @@ void StratumClient::authorize() {
     send_message(StratumMessages::authorize(2, worker_name_, password_));
 }
 
+void StratumClient::suggest_difficulty(double difficulty) {
+    json msg;
+    msg["id"] = nullptr;  // Notification, no response expected
+    msg["method"] = "mining.suggest_difficulty";
+    msg["params"] = json::array({difficulty});
+    send_message(msg);
+    ohmy::log::line("Suggesting difficulty: {:.6f} to pool", difficulty);
+}
+
 void StratumClient::submit_share(const ShareResult& share) {
     // Guard: only submit if we're connected, subscribed and authorized
     if (!is_connected()) {
@@ -381,7 +390,7 @@ void StratumClient::handle_mining_notify(const json& params) {
                     target[31] = static_cast<uint8_t>(coefficient & 0xFF);
                 } else if (exponent <= 32) {
                     int pos = 32 - static_cast<int>(exponent);
-                    if (pos >= 0 && pos + 2 < 32) {
+                    if (pos >= 0 && pos + 2 < 32) {  // BUG: should be pos + 2 <= 31
                         target[static_cast<size_t>(pos)]     = static_cast<uint8_t>((coefficient >> 16) & 0xFF);
                         target[static_cast<size_t>(pos + 1)] = static_cast<uint8_t>((coefficient >> 8) & 0xFF);
                         target[static_cast<size_t>(pos + 2)] = static_cast<uint8_t>(coefficient & 0xFF);
@@ -466,6 +475,30 @@ void StratumClient::handle_set_difficulty(const json& params) {
     try {
         current_difficulty_ = params[0];
         ohmy::log::line("Stratum set raw difficulty to {:.4f}", current_difficulty_);
+        
+        // Calculate expected time to share based on typical hashrate
+        // Assuming ~3 KH/s average
+        if (current_difficulty_ > 0.0) {
+            double target_space = 4294967296.0 / current_difficulty_;  // 2^32 / diff
+            double seconds_per_share = target_space / 3000.0;  // assuming 3 KH/s
+            
+            std::string time_est;
+            if (seconds_per_share < 60) {
+                time_est = fmt::format("{:.0f}s", seconds_per_share);
+            } else if (seconds_per_share < 3600) {
+                time_est = fmt::format("{:.1f}min", seconds_per_share / 60.0);
+            } else if (seconds_per_share < 86400) {
+                time_est = fmt::format("{:.1f}h", seconds_per_share / 3600.0);
+            } else {
+                time_est = fmt::format("{:.1f} days", seconds_per_share / 86400.0);
+            }
+            
+            ohmy::log::line("Expected time per share @ 3KH/s: {}", time_est);
+            
+            if (seconds_per_share > 600) {  // More than 10 minutes
+                ohmy::log::line("WARNING: Difficulty may be too high for this hashrate!");
+            }
+        }
         
         // Notify the work manager about difficulty change
         if (difficulty_callback_) {

@@ -280,6 +280,7 @@ std::vector<uint32_t> BatchedQHashWorker::try_nonce_batch(
             
             // Check if meets share target (preferred), else network bits
             const std::string& target_param = !work.share_target_hex.empty() ? work.share_target_hex : work.bits;
+            
             if (meets_target(hash_hex, target_param)) {
                 valid_nonces.push_back(nonces[i]);
             }

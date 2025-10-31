@@ -64,6 +64,7 @@ protected:
     // Core protocol methods
     virtual void subscribe();
     virtual void authorize();
+    virtual void suggest_difficulty(double difficulty);
     virtual void handle_mining_notify(const json& params);
     virtual void handle_set_difficulty(const json& params);
     virtual void handle_submit_result(const json& result, bool accepted);
