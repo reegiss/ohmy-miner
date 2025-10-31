@@ -171,9 +171,9 @@ std::string QHashWorker::compute_qhash(const std::string& block_header, [[maybe_
     auto expectations = simulate_circuit(circuit);
     
     // 4. Convert expectations to deterministic fixed-point representation
-    // Each Q15 expectation is 2 bytes (int16_t), 32 qubits = 64 bytes total
+    // Each Q15 expectation is 2 bytes (int16_t), 16 qubits = 32 bytes total
     std::vector<uint8_t> fixed_point_bytes;
-    fixed_point_bytes.reserve(64);
+    fixed_point_bytes.reserve(32);
     
     for (const auto& exp : expectations) {
         int16_t raw = static_cast<int16_t>(exp.raw());
@@ -226,9 +226,11 @@ std::string QHashWorker::compute_qhash(const std::string& block_header, [[maybe_
 }
 
 quantum::QuantumCircuit QHashWorker::generate_circuit_from_hash(const std::string& hash_hex, uint32_t nTime) {
-    // Official qhash specification: 32 qubits, 94 operations (32 R_Y + 31 CNOT + 31 R_Z)
-    // Reference: super-quantum/qubitcoin qhash.cpp
-    constexpr int NUM_QUBITS = 32;
+    // Official qhash specification: 16 qubits, 2 layers
+    // Per layer: 16 R_Y + 15 CNOT + 16 R_Z = 47 operations
+    // Total: 94 operations (2 layers × 47)
+    // Reference: super-quantum/qubitcoin qhash.{h,cpp}
+    constexpr int NUM_QUBITS = 16;
     quantum::QuantumCircuit circuit(NUM_QUBITS);
     
     // Temporal flag for Fork #4 (Sep 17, 2025 16:00 UTC)

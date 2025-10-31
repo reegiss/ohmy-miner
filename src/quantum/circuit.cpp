@@ -11,7 +11,7 @@ namespace quantum {
 
 QuantumCircuit::QuantumCircuit(int num_qubits) 
     : num_qubits_(num_qubits) {
-    if (num_qubits <= 0 || num_qubits > 32) {
+    if (num_qubits <= 0 || num_qubits > 16) {
         throw std::invalid_argument("Invalid number of qubits");
     }
 }
