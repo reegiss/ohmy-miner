@@ -192,7 +192,8 @@ std::string QHashWorker::compute_qhash(const std::string& block_header, [[maybe_
     }
     
     // 5. Zero Validation (Fork #1, #2, #3)
-    // Count zero bytes in fixed-point representation
+    // Reference: qhash.cpp lines 158-167
+    // Reject hashes with TOO MANY zeros (pathological quantum states)
     int zero_count = 0;
     for (uint8_t byte : fixed_point_bytes) {
         if (byte == 0) {
@@ -200,22 +201,26 @@ std::string QHashWorker::compute_qhash(const std::string& block_header, [[maybe_
         }
     }
     
-    // Apply temporal validation rules
-    double zero_percentage = (zero_count * 100.0) / fixed_point_bytes.size();
+    // Apply temporal fork rules (progressive restrictions)
+    bool is_invalid = false;
     
-    // Note: Forks apply cumulatively - later timestamps override earlier ones
-    if (nTime >= 1754220531) {  // Fork #3: Jul 11, 2025 - 25% validation
-        if (zero_percentage < 25.0) {
-            return std::string(64, 'f');
-        }
-    } else if (nTime >= 1753305380) {  // Fork #2: Jun 30, 2025 - 75% validation
-        if (zero_percentage < 75.0) {
-            return std::string(64, 'f');
-        }
-    } else if (nTime >= 1753105444) {  // Fork #1: Jun 28, 2025 - 100% validation
-        if (zero_percentage < 100.0) {
-            return std::string(64, 'f');  // Return invalid hash (all f's)
-        }
+    // Fork #1 (Jun 28, 2025): Reject if ALL 32 bytes are zero
+    if (nTime >= 1753105444 && zero_count == 32) {
+        is_invalid = true;
+    }
+    
+    // Fork #2 (Jun 30, 2025): Reject if >= 75% (24/32) bytes are zero
+    if (nTime >= 1753305380 && zero_count >= 24) {
+        is_invalid = true;
+    }
+    
+    // Fork #3 (Jul 11, 2025): Reject if >= 25% (8/32) bytes are zero
+    if (nTime >= 1754220531 && zero_count >= 8) {
+        is_invalid = true;
+    }
+    
+    if (is_invalid) {
+        return std::string(64, 'f');  // Return invalid hash (all f's)
     }
     
     // 6. Final Hash: SHA256(initial_hash + quantum_fixed_point) - Bug #6 fix
@@ -401,98 +406,106 @@ std::vector<uint8_t> QHashWorker::sha256d_raw(const std::vector<uint8_t>& input)
 }
 
 std::string QHashWorker::format_block_header(const ohmy::pool::WorkPackage& work, uint32_t nonce) {
-    // Bitcoin-style block header format (80 bytes total)
-    // Structure: version(4) + prevhash(32) + merkleroot(32) + time(4) + bits(4) + nonce(4)
+    // Block header must be BINARY (80 bytes), not hex string!
+    // Reference: Bitcoin/Qubitcoin block header format (little-endian)
+    std::vector<uint8_t> header;
+    header.reserve(80);
     
-    std::stringstream ss;
+    // Helper: Convert hex string to bytes
+    auto hex_to_bytes = [](const std::string& hex) -> std::vector<uint8_t> {
+        std::vector<uint8_t> bytes;
+        for (size_t i = 0; i < hex.length(); i += 2) {
+            std::string byte_str = hex.substr(i, 2);
+            uint8_t byte = static_cast<uint8_t>(std::stoul(byte_str, nullptr, 16));
+            bytes.push_back(byte);
+        }
+        return bytes;
+    };
     
-    // Version (4 bytes, little-endian)
-    ss << work.version;
+    // 1. Version (4 bytes, little-endian)
+    auto version_bytes = hex_to_bytes(work.version);
+    std::reverse(version_bytes.begin(), version_bytes.end());
+    header.insert(header.end(), version_bytes.begin(), version_bytes.end());
     
-    // Previous block hash (32 bytes, little-endian)
-    ss << work.previous_hash;
+    // 2. Previous block hash (32 bytes, reversed for little-endian)
+    auto prev_hash_bytes = hex_to_bytes(work.previous_hash);
+    std::reverse(prev_hash_bytes.begin(), prev_hash_bytes.end());
+    header.insert(header.end(), prev_hash_bytes.begin(), prev_hash_bytes.end());
     
-    // Merkle root (32 bytes) - constructed from coinbase + merkle branch
-    // For now, use a simplified approach
+    // 3. Merkle root (32 bytes, reversed for little-endian)
     std::string merkle_root = work.coinbase1 + work.coinbase2;
     if (merkle_root.length() > 64) merkle_root = merkle_root.substr(0, 64);
     while (merkle_root.length() < 64) merkle_root += "0";
-    ss << merkle_root;
+    auto merkle_bytes = hex_to_bytes(merkle_root);
+    std::reverse(merkle_bytes.begin(), merkle_bytes.end());
+    header.insert(header.end(), merkle_bytes.begin(), merkle_bytes.end());
     
-    // Timestamp (4 bytes, little-endian)
-    ss << work.time;
+    // 4. Timestamp (4 bytes, little-endian)
+    auto time_bytes = hex_to_bytes(work.time);
+    std::reverse(time_bytes.begin(), time_bytes.end());
+    header.insert(header.end(), time_bytes.begin(), time_bytes.end());
     
-    // Target/difficulty bits (4 bytes, little-endian)
-    ss << work.bits;
+    // 5. Bits (4 bytes, little-endian)
+    auto bits_bytes = hex_to_bytes(work.bits);
+    std::reverse(bits_bytes.begin(), bits_bytes.end());
+    header.insert(header.end(), bits_bytes.begin(), bits_bytes.end());
     
-    // Nonce (4 bytes, little-endian)
-    ss << std::hex << std::setfill('0') << std::setw(8) << nonce;
+    // 6. Nonce (4 bytes, little-endian)
+    header.push_back(nonce & 0xFF);
+    header.push_back((nonce >> 8) & 0xFF);
+    header.push_back((nonce >> 16) & 0xFF);
+    header.push_back((nonce >> 24) & 0xFF);
     
-    return ss.str();
+    // Convert back to string for compatibility with existing code
+    return std::string(header.begin(), header.end());
 }
 
-bool QHashWorker::meets_target(const std::string& hash, const std::string& target_bits) {
-    // Convert compact bits format to full target
-    // Format: 0x1d00ffff -> exponent=0x1d, coefficient=0x00ffff
-    uint32_t bits_value = std::stoul(target_bits, nullptr, 16);
-    
-    // Extract exponent (most significant byte) and coefficient
-    uint32_t exponent = bits_value >> 24;
-    uint32_t coefficient = bits_value & 0x00FFFFFF;
-    
-    // Calculate target as coefficient * 256^(exponent-3)
-    // Target is a 256-bit number
+bool QHashWorker::meets_target(const std::string& hash, const std::string& target_param) {
+    // Build 32-byte big-endian target from either full 64-hex or compact 8-hex bits
     std::vector<uint8_t> target(32, 0);
-    
-    if (exponent <= 3) {
-        // Coefficient fits in first 3 bytes
-        target[29] = (coefficient >> 16) & 0xFF;
-        target[30] = (coefficient >> 8) & 0xFF;
-        target[31] = coefficient & 0xFF;
-    } else if (exponent < 32) {
-        // Place coefficient at position determined by exponent
-        int pos = 32 - exponent;
-        if (pos >= 0 && pos < 29) {
-            target[pos] = (coefficient >> 16) & 0xFF;
-            target[pos + 1] = (coefficient >> 8) & 0xFF;
-            target[pos + 2] = coefficient & 0xFF;
+    if (target_param.size() >= 64) {
+        for (size_t i = 0; i < 64; i += 2) {
+            target[i/2] = static_cast<uint8_t>(std::stoul(target_param.substr(i, 2), nullptr, 16));
+        }
+    } else {
+        uint32_t bits_value = std::stoul(target_param, nullptr, 16);
+        uint32_t exponent = bits_value >> 24;
+        uint32_t coefficient = bits_value & 0x00FFFFFF;
+        if (exponent <= 3) {
+            target[29] = static_cast<uint8_t>((coefficient >> 16) & 0xFF);
+            target[30] = static_cast<uint8_t>((coefficient >> 8) & 0xFF);
+            target[31] = static_cast<uint8_t>(coefficient & 0xFF);
+        } else if (exponent <= 32) {
+            int pos = 32 - static_cast<int>(exponent);
+            if (pos >= 0 && pos + 2 < 32) {
+                target[static_cast<size_t>(pos)]     = static_cast<uint8_t>((coefficient >> 16) & 0xFF);
+                target[static_cast<size_t>(pos + 1)] = static_cast<uint8_t>((coefficient >> 8) & 0xFF);
+                target[static_cast<size_t>(pos + 2)] = static_cast<uint8_t>(coefficient & 0xFF);
+            }
         }
     }
-    
+
     // Convert hash hex string to bytes (big-endian)
     std::vector<uint8_t> hash_bytes(32, 0);
     for (size_t i = 0; i < 64 && i < hash.length(); i += 2) {
-        std::string byte_str = hash.substr(i, 2);
-        hash_bytes[i/2] = static_cast<uint8_t>(std::stoul(byte_str, nullptr, 16));
+        hash_bytes[i/2] = static_cast<uint8_t>(std::stoul(hash.substr(i, 2), nullptr, 16));
     }
-    
+
     // Compare hash < target (byte by byte, big-endian)
-    bool meets = false;
     for (size_t i = 0; i < 32; i++) {
         if (hash_bytes[i] < target[i]) {
-            meets = true;
-            break;
+            int leading_zeros = 0;
+            for (char c : hash) {
+                if (c == '0') leading_zeros++; else break;
+            }
+            fmt::print(fg(fmt::color::green), "✓ Valid share! Leading zeros: {}\n", leading_zeros);
+            fmt::print("  Hash: {}...\n", hash.substr(0, 32));
+            return true;
         } else if (hash_bytes[i] > target[i]) {
-            meets = false;
-            break;
+            return false;
         }
     }
-    
-    if (meets) {
-        // Count leading zeros for display
-        int leading_zeros = 0;
-        for (char c : hash) {
-            if (c == '0') leading_zeros++;
-            else break;
-        }
-        
-        fmt::print(fg(fmt::color::green), 
-                  "✓ Valid share! Leading zeros: {} | Bits: {}\n",
-                  leading_zeros, target_bits);
-        fmt::print("  Hash: {}...\n", hash.substr(0, 32));
-    }
-    
-    return meets;
+    return true; // equal
 }
 
 } // namespace mining

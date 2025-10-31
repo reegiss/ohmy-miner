@@ -4,6 +4,7 @@
  */
 
 #include "ohmy/quantum/simulator.hpp"
+#include "ohmy/quantum/cuda_simulator.hpp"
 #include <stdexcept>
 
 namespace ohmy {
@@ -18,7 +19,7 @@ std::unique_ptr<IQuantumSimulator> SimulatorFactory::create(Backend backend, int
             return create_cpu_simulator(max_qubits);
         
         case Backend::CUDA_CUSTOM:
-            throw std::runtime_error("CUDA_CUSTOM backend not yet implemented");
+            return std::make_unique<cuda::CudaQuantumSimulator>(max_qubits);
         
         case Backend::CUQUANTUM:
             #ifdef OHMY_WITH_CUQUANTUM
@@ -36,6 +37,7 @@ std::unique_ptr<IQuantumSimulator> SimulatorFactory::create(Backend backend, int
 std::vector<SimulatorFactory::Backend> SimulatorFactory::available_backends() {
     std::vector<Backend> backends;
     backends.push_back(Backend::CPU_BASIC);
+    backends.push_back(Backend::CUDA_CUSTOM);
     
     #ifdef OHMY_WITH_CUQUANTUM
     backends.push_back(Backend::CUQUANTUM);

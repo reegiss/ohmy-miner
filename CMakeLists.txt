@@ -106,7 +106,12 @@ add_executable(ohmy-miner
   src/quantum/circuit.cpp
   src/quantum/cpu_simulator.cpp
   src/quantum/simulator_factory.cpp
-  src/mining/qhash_worker.cpp
+  src/mining/batched_qhash_worker.cpp
+  # CUDA quantum simulator
+  src/quantum/cuda_device.cu
+  src/quantum/cuda_kernels.cu
+  src/quantum/cuda_simulator.cu
+  src/quantum/batched_cuda_simulator.cu
 )
 
 # A definição ASIO_STANDALONE ainda é necessária

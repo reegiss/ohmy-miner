@@ -1,0 +1,59 @@
+[01:44:50] Initializing GPUs...
+[01:44:50] Job monitor started (stats interval: 10s)
+[01:44:50] Jobs rcvd: 0, processed: 0, pending: 0, workers: 0
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE     0.00 H/s   45C    0%   16W 0.000 1530  7000     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                     0.00 H/s Power: 16W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[01:44:50] GPU #0: NVIDIA GeForce GTX 1660 SUPER [busID: 8] [arch: sm75] [driver: 13]
+[CUDA Batch] Initialized NVIDIA GeForce GTX 1660 SUPER with 16 qubits, batch size 1000
+[CUDA Batch] Memory: 500.00 MB (512.00 KB per state × 1000 states)
+Added worker, total workers: 1
+[01:44:50] threads: 1, intensity: 23, cu: 22, mem: 5551Mb
+Job dispatcher started
+[01:44:50] use pool qubitcoin.luckypool.io:8610 217.182.193.158
+Sending request id=1 method=mining.subscribe
+Sending request id=2 method=mining.authorize
+[01:44:50] Stratum set raw difficulty to 1.0000
+Difficulty updated to: 1
+[01:44:50] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.17M
+[01:44:50] block: 61870
+[01:44:50] job target: 0x00000000ffff0000
+Added job to queue: 3b94 (queue size: 1)
+Processing job: 3b94 (remaining in queue: 0)
+Dispatched job 3b94 to 1 workers in parallel
+[01:44:51] Start mining
+[01:45:00] Jobs rcvd: 1, processed: 1, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    2.80 KH/s   52C    0%   62W 0.000 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    2.80 KH/s Power: 62W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[01:45:10] Jobs rcvd: 1, processed: 1, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   54C   51%   75W 0.000 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 75W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[01:45:20] Jobs rcvd: 1, processed: 1, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   54C   52%   77W 0.000 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 77W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[01:45:30] Jobs rcvd: 1, processed: 1, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             

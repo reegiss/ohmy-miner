@@ -104,6 +104,7 @@ public:
     void add_worker(std::shared_ptr<IWorker> worker);
     void remove_worker(std::shared_ptr<IWorker> worker);
     void stop_all_workers();
+    std::vector<std::shared_ptr<IWorker>> get_workers() const;
 
     // Job dispatching
     void start_dispatching();

@@ -10,7 +10,9 @@ set(TEST_EXECUTABLES
     test_difficulty
     test_quantum_simulator
     test_stratum_messages
-    test_temporal_forks
+    test_cuda_backend
+    test_performance_baseline
+    test_batch_performance
 )
 
 # Include parent directories for headers
@@ -58,27 +60,54 @@ target_sources(test_quantum_simulator PRIVATE
     ${CMAKE_SOURCE_DIR}/src/quantum/circuit.cpp
     ${CMAKE_SOURCE_DIR}/src/quantum/cpu_simulator.cpp
     ${CMAKE_SOURCE_DIR}/src/quantum/simulator_factory.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_device.cu
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_kernels.cu
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_simulator.cu
     ${CMAKE_SOURCE_DIR}/src/fixed_point.cpp
 )
+target_link_libraries(test_quantum_simulator PRIVATE CUDA::cudart)
 
 # Stratum messages test needs pool implementation
 target_sources(test_stratum_messages PRIVATE
     ${CMAKE_SOURCE_DIR}/src/pool/messages.cpp
 )
 
-# Temporal forks test needs quantum simulator and mining worker
-target_sources(test_temporal_forks PRIVATE
-    ${CMAKE_SOURCE_DIR}/src/mining/qhash_worker.cpp
+# CUDA backend validation test
+target_sources(test_cuda_backend PRIVATE
     ${CMAKE_SOURCE_DIR}/src/quantum/circuit.cpp
     ${CMAKE_SOURCE_DIR}/src/quantum/cpu_simulator.cpp
     ${CMAKE_SOURCE_DIR}/src/quantum/simulator_factory.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_device.cu
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_kernels.cu
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_simulator.cu
     ${CMAKE_SOURCE_DIR}/src/fixed_point.cpp
-    ${CMAKE_SOURCE_DIR}/src/crypto/sha256d.cpp
 )
 
-target_link_libraries(test_temporal_forks PRIVATE
-    OpenSSL::SSL
+target_link_libraries(test_cuda_backend PRIVATE CUDA::cudart)
+
+# Performance baseline test (CPU vs CUDA comparison)
+target_sources(test_performance_baseline PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/quantum/circuit.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/cpu_simulator.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/simulator_factory.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_device.cu
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_kernels.cu
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_simulator.cu
+    ${CMAKE_SOURCE_DIR}/src/fixed_point.cpp
 )
+
+target_link_libraries(test_performance_baseline PRIVATE CUDA::cudart)
+
+# Batch performance test
+target_sources(test_batch_performance PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/quantum/circuit.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_device.cu
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_kernels.cu
+    ${CMAKE_SOURCE_DIR}/src/quantum/batched_cuda_simulator.cu
+    ${CMAKE_SOURCE_DIR}/src/fixed_point.cpp
+)
+
+target_link_libraries(test_batch_performance PRIVATE CUDA::cudart)
 
 # Enable testing
 enable_testing()

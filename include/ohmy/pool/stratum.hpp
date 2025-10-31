@@ -10,6 +10,8 @@
 #include <memory>
 #include <nlohmann/json.hpp>
 #include <asio.hpp>
+#include <unordered_set>
+#include <unordered_map>
 
 namespace ohmy {
 namespace pool {
@@ -27,6 +29,7 @@ public:
     using json = nlohmann::json;
     using WorkCallback = std::function<void(const WorkPackage&)>;
     using ShareCallback = std::function<void(const ShareResult&)>;
+    using DifficultyCallback = std::function<void(double)>;
 
     /**
      * Constructs a new Stratum client
@@ -55,6 +58,7 @@ public:
     // Callbacks for mining integration
     void set_work_callback(WorkCallback callback);
     void set_share_callback(ShareCallback callback);
+    void set_difficulty_callback(DifficultyCallback callback);
 
 protected:
     // Core protocol methods
@@ -77,6 +81,8 @@ private:
     bool subscribed_ = false;
     bool authorized_ = false;
     double current_difficulty_ = 0.0;
+    std::string extranonce1_;        // Extranonce1 from mining.subscribe
+    int extranonce2_size_ = 8;       // Extranonce2 size (bytes, usually 8)
 
     // Network state 
     asio::io_context& io_context_;
@@ -92,6 +98,19 @@ private:
     // Callbacks
     WorkCallback work_callback_;
     ShareCallback share_callback_;
+    DifficultyCallback difficulty_callback_;
+
+    // Track valid job IDs to avoid submitting stale shares
+    std::unordered_set<std::string> valid_job_ids_;
+
+    // Track pending share submissions by request id for better diagnostics
+    struct PendingShare {
+        std::string job_id;
+        std::string extranonce2;
+        std::string ntime;
+        std::string nonce_hex;
+    };
+    std::unordered_map<uint64_t, PendingShare> pending_submits_;
 };
 
 // Helper struct for mining work units
@@ -105,6 +124,12 @@ struct WorkPackage {
     std::string bits;           // Target difficulty
     std::string time;           // Current time
     bool clean_jobs;            // If true, discard previous jobs
+    std::string extranonce1;     // Extranonce1 from subscription
+    std::string extranonce2;     // Generated extranonce2 for this work
+    // Share target derived from mining.set_difficulty (64-hex, big-endian)
+    std::string share_target_hex;
+    // Share difficulty value provided by pool
+    double share_difficulty = 0.0;
 };
 
 // Helper struct for share submission results

@@ -6,32 +6,26 @@
 #include <iostream>
 #include <string>
 #include <memory>
+#include <thread>
 #include <cxxopts.hpp>
 #include <fmt/format.h>
-#include <fmt/color.h>
 #include <asio.hpp>
+#include <cuda_runtime.h>
+#include "ohmy/log.hpp"
+#include <cmath>
 
 #include "ohmy/pool/stratum.hpp"
 #include "ohmy/pool/work.hpp"
 #include "ohmy/pool/monitor.hpp"
-#include "ohmy/mining/qhash_worker.hpp"
+#include "ohmy/mining/batched_qhash_worker.hpp"
 #include "ohmy/quantum/simulator.hpp"
+#include "ohmy/quantum/cuda_types.hpp"
+#include "ohmy/quantum/batched_cuda_simulator.hpp"
 
-// Banner art - use raw string literal for multi-line string
-const char* BANNER = R"(
-╔═══════════════════════════════════════════════════════════════════╗
-║                      OhMyMiner v1.0.0-GPU                         ║
-║          High-Performance Quantum Circuit Mining on GPU           ║
-╚═══════════════════════════════════════════════════════════════════╝
-)";
-
-void print_banner() {
-    fmt::print(fg(fmt::color::cyan), "{}\n", BANNER);
-}
 
 void print_usage(const std::string& message = "") {
     if (!message.empty()) {
-        fmt::print(fg(fmt::color::red), "Error: {}\n\n", message);
+        ohmy::log::line("Error: {}", message);
     }
 
     fmt::print(
@@ -97,7 +91,6 @@ MinerParams parse_command_line(int argc, char* argv[]) {
         auto result = options.parse(argc, argv);
 
         if (result.count("help")) {
-            print_banner();
             print_usage();
             exit(0);
         }
@@ -117,21 +110,13 @@ MinerParams parse_command_line(int argc, char* argv[]) {
 }
 
 int main(int argc, char* argv[]) {
-    print_banner();
-
     // Parse and validate command line
     auto params = parse_command_line(argc, argv);
     if (!params.validate()) {
         return 1;
     }
 
-    // Log startup configuration
-    fmt::print("\nStarting miner with configuration:\n");
-    fmt::print("  Algorithm: {}\n", params.algo);
-    fmt::print("  Pool URL:  {}\n", params.url);
-    fmt::print("  Wallet:    {}\n", params.user);
-    fmt::print("  Password:  {}\n", params.pass);
-    fmt::print("\nInitializing GPU mining...\n\n");
+    ohmy::log::line("Initializing GPUs...");
 
     try {
         // Initialize ASIO
@@ -143,7 +128,7 @@ int main(int argc, char* argv[]) {
         // Create job dispatcher
         auto dispatcher = std::make_shared<ohmy::pool::JobDispatcher>(work_manager);
 
-        // Create job monitor
+    // Create job monitor
         auto monitor = std::make_shared<ohmy::pool::JobMonitor>(work_manager, dispatcher);
 
         // Create and configure stratum client
@@ -159,10 +144,15 @@ int main(int argc, char* argv[]) {
         stratum->set_share_callback([work_manager](const ohmy::pool::ShareResult& share) {
             work_manager->track_share_result(share);
             if (share.accepted) {
-                fmt::print(fg(fmt::color::green), "Share accepted by pool!\n");
+                ohmy::log::line("Share accepted");
             } else {
-                fmt::print(fg(fmt::color::red), "Share rejected by pool: {}\n", share.reason);
+                ohmy::log::line("Share rejected: {}", share.reason);
             }
+        });
+
+        // Track pool difficulty updates for ETA calculations/monitor
+        stratum->set_difficulty_callback([work_manager](double diff){
+            work_manager->set_difficulty(diff);
         });
 
         // Connect to pool
@@ -171,70 +161,94 @@ int main(int argc, char* argv[]) {
         // Start job monitoring
         monitor->start_monitoring();
 
-        // Create and configure mining workers
-        const int num_workers = 2;  // Start with 2 workers for testing
-        std::vector<std::shared_ptr<ohmy::mining::QHashWorker>> workers;
+        // Setup signal handling (Ctrl+C / SIGTERM)
+        asio::signal_set signals(io_context, SIGINT, SIGTERM);
+        signals.async_wait([&](const std::error_code&, int){
+            ohmy::log::line("Ctrl+C received");
+            ohmy::log::line("exiting...");
+            monitor->stop_monitoring();
+            dispatcher->stop_dispatching();
+            dispatcher->stop_all_workers();
+            stratum->disconnect();
+            io_context.stop();
+        });
+
+        // Auto-detect GPU and create appropriate workers
+        // Detect GPU hardware
         
-        fmt::print("\n");
-        fmt::print(fg(fmt::color::yellow), "⚠️  WARNING: CPU simulator with 16 qubits requires ~1MB RAM per worker\n");
-        fmt::print(fg(fmt::color::yellow), "   CPU simulation is SLOW - for production mining, use GPU backend.\n");
-        fmt::print(fg(fmt::color::yellow), "   Current implementation validates consensus logic only.\n\n");
+        ohmy::quantum::cuda::DeviceInfo gpu_info;
         
-        for (int i = 0; i < num_workers; ++i) {
-            try {
-                // Create quantum simulator for each worker (16 qubits for official qhash spec)
-                // NOTE: CPU_BASIC backend allocates 2^16 complex amplitudes = ~1MB RAM
-                // This is viable but SLOW - GPU/cuQuantum required for competitive mining
-                auto simulator = ohmy::quantum::SimulatorFactory::create(
-                    ohmy::quantum::SimulatorFactory::Backend::CPU_BASIC, 16);
-                
-                // Create worker
-                auto worker = std::make_shared<ohmy::mining::QHashWorker>(
-                    std::move(simulator), i);
-                
-                // Set share callback to submit to pool
-                worker->set_share_callback([stratum](const ohmy::pool::ShareResult& share) {
-                    stratum->submit_share(share);
-                });
-                
-                // Add to dispatcher
-                dispatcher->add_worker(worker);
-                workers.push_back(worker);
-            } catch (const std::bad_alloc& e) {
-                fmt::print(fg(fmt::color::red), "\n❌ FATAL: Cannot allocate 16-qubit state vector on CPU\n");
-                fmt::print(fg(fmt::color::red), "   Required: ~1MB RAM for 2^16 complex amplitudes\n");
-                fmt::print(fg(fmt::color::red), "   This should NOT happen - check system memory\n\n");
-                fmt::print("Technical details:\n");
-                fmt::print("  - qhash requires 16 qubits (official spec)\n");
-                fmt::print("  - CPU simulator needs 2^16 × 16 bytes = 1MB memory\n");
-                fmt::print("  - GPU will be much faster for production mining\n");
-                fmt::print("  - Temporal forks implementation is CORRECT\n");
-                fmt::print("  - All tests pass - consensus logic validated ✓\n\n");
+        try {
+            gpu_info = ohmy::quantum::cuda::DeviceInfo::query(0);
+            
+            if (!gpu_info.is_compatible()) {
+                ohmy::log::line("GPU compute capability {}.{} < 7.5 (minimum required)",
+                          gpu_info.compute_capability_major, gpu_info.compute_capability_minor);
                 return 1;
             }
+            
+            int drv=0, rt=0; cudaDriverGetVersion(&drv); cudaRuntimeGetVersion(&rt);
+            int arch_major = gpu_info.compute_capability_major;
+            int arch_minor = gpu_info.compute_capability_minor;
+            // Attempt to get bus id from CUDA props
+            cudaDeviceProp prop{};
+            int busId = -1;
+            if (cudaGetDeviceProperties(&prop, 0) == cudaSuccess) {
+                busId = prop.pciBusID;
+            }
+            ohmy::log::line("GPU #0: {} [busID: {}] [arch: sm{}{}] [driver: {}]",
+                            gpu_info.name, busId, arch_major, arch_minor, drv/1000);
+            
+        } catch (const std::exception& e) {
+            ohmy::log::line("No CUDA GPU detected: {}", e.what());
+            return 1;
+        }
+        
+        // GPU MODE: Create single batched worker
+        constexpr int BATCH_SIZE = 1000;
+        constexpr int NUM_QUBITS = 16;
+        
+        try {
+            // Create batched CUDA simulator
+            auto simulator = std::make_unique<ohmy::quantum::cuda::BatchedCudaSimulator>(
+                NUM_QUBITS, BATCH_SIZE, 0);
+            
+            // Create GPU worker
+            auto worker = std::make_shared<ohmy::mining::BatchedQHashWorker>(
+                std::move(simulator), 0, BATCH_SIZE);
+            
+            // Set share callback
+            worker->set_share_callback([stratum](const ohmy::pool::ShareResult& share) {
+                stratum->submit_share(share);
+            });
+            
+            // Add to dispatcher
+            dispatcher->add_worker(worker);
+            
+            // Print threads/intensity/compute units/memory line
+            const int threads = 1; // single GPU worker thread
+            const int cu = gpu_info.multiprocessor_count;
+            double free_mb = static_cast<double>(gpu_info.free_memory) / (1024.0 * 1024.0);
+            // Heuristic intensity from batch size (tuned to resemble typical values)
+            int intensity = static_cast<int>(std::round(std::log2(BATCH_SIZE))) + 13;
+            ohmy::log::line("threads: {}, intensity: {}, cu: {}, mem: {}Mb", 
+                            threads, intensity, cu, static_cast<int>(free_mb));
+            
+        } catch (const std::exception& e) {
+            ohmy::log::line("Failed to initialize GPU worker: {}", e.what());
+            return 1;
         }
 
         // Start job dispatcher
         dispatcher->start_dispatching();
 
-        fmt::print("Mining system initialized:\n");
-        fmt::print("  ✓ Pool connection established\n");
-        fmt::print("  ✓ Job dispatcher started\n");
-        fmt::print("  ✓ Job monitor started\n");
-        fmt::print("  ✓ {} quantum mining workers created\n", num_workers);
-        fmt::print("  ✓ Using {} quantum simulator backend\n\n", 
-                  workers[0]->get_stats().current_job_id.empty() ? "CPU_BASIC" : "CPU_BASIC");
-
         // Run ASIO event loop
-        fmt::print("Starting event loop...\n");
         io_context.run();
 
         // Cleanup
         monitor->stop_monitoring();
-        dispatcher->stop_dispatching();
-
-    } catch (const std::exception& e) {
-        fmt::print(fg(fmt::color::red), "Fatal error: {}\n", e.what());
+        dispatcher->stop_dispatching();    } catch (const std::exception& e) {
+        ohmy::log::line("Fatal error: {}", e.what());
         return 1;
     }
 

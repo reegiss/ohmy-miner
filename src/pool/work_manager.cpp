@@ -211,6 +211,11 @@ void JobDispatcher::stop_all_workers() {
     fmt::print("Stopped all {} workers\n", workers_.size());
 }
 
+std::vector<std::shared_ptr<IWorker>> JobDispatcher::get_workers() const {
+    std::lock_guard<std::mutex> lock(workers_mutex_);
+    return workers_;
+}
+
 void JobDispatcher::start_dispatching() {
     if (running_.load()) {
         return;
@@ -265,10 +270,17 @@ void JobDispatcher::dispatch_loop() {
             continue;
         }
         
-        // Dispatch job to first available worker
+        // Dispatch job to ALL available workers in parallel
         try {
             WorkPackage job = work_manager_->get_next_job();
-            dispatch_job_to_worker(job, available_workers[0]);
+            
+            // Send same job to all workers (they'll work on different nonce ranges)
+            for (const auto& worker : available_workers) {
+                dispatch_job_to_worker(job, worker);
+            }
+            
+            fmt::print("Dispatched job {} to {} workers in parallel\n", 
+                      job.job_id, available_workers.size());
             
             jobs_dispatched_in_period++;
             
@@ -299,7 +311,7 @@ void JobDispatcher::dispatch_loop() {
 }
 
 void JobDispatcher::dispatch_job_to_worker(const WorkPackage& job, std::shared_ptr<IWorker> worker) {
-    fmt::print("Dispatching job {} to worker\n", job.job_id);
+    // Note: Multiple workers will receive same job and work on different nonce ranges
     worker->process_work(job);
 }
 
