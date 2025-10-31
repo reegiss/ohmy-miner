@@ -51,7 +51,8 @@ private:
     
     // Hash utilities
     std::string sha256d(const std::string& input);  // Double SHA256 like Bitcoin
-    std::vector<uint8_t> sha256d_raw(const std::vector<uint8_t>& input);
+    std::vector<uint8_t> sha256_raw(const std::vector<uint8_t>& input);  // Single SHA256
+    std::vector<uint8_t> sha256d_raw(const std::vector<uint8_t>& input);  // Double SHA256
     std::string format_block_header(const ohmy::pool::WorkPackage& work, uint32_t nonce);
     bool meets_target(const std::string& hash, const std::string& target_bits);
 

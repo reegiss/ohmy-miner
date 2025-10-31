@@ -16,11 +16,11 @@ QuantumCircuit::QuantumCircuit(int num_qubits)
     }
 }
 
-void QuantumCircuit::add_rotation(int qubit, double angle) {
+void QuantumCircuit::add_rotation(int qubit, double angle, RotationAxis axis) {
     if (qubit < 0 || qubit >= num_qubits_) {
         throw std::out_of_range("Qubit index out of range");
     }
-    rotation_gates_.push_back({qubit, angle});
+    rotation_gates_.push_back({qubit, angle, axis});
 }
 
 void QuantumCircuit::add_cnot(int control, int target) {

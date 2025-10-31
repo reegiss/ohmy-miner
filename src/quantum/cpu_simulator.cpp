@@ -29,7 +29,11 @@ public:
 
         // Apply rotation gates
         for (const auto& gate : circuit.rotation_gates()) {
-            apply_rotation(gate.qubit, gate.angle);
+            if (gate.axis == RotationAxis::Y) {
+                apply_rotation_y(gate.qubit, gate.angle);
+            } else {
+                apply_rotation_z(gate.qubit, gate.angle);
+            }
         }
 
         // Apply CNOT gates
@@ -77,7 +81,8 @@ public:
     std::string backend_name() const override { return "CPU_BASIC"; }
 
 private:
-    void apply_rotation(int qubit, double angle) {
+    void apply_rotation_y(int qubit, double angle) {
+        // R_Y gate: rotation around Y axis
         double cos_half = std::cos(angle / 2.0);
         double sin_half = std::sin(angle / 2.0);
 
@@ -90,8 +95,27 @@ private:
                 Complex alpha = state_[i];
                 Complex beta = state_[j];
                 
-                state_[i] = cos_half * alpha - Complex(0, sin_half) * beta;
-                state_[j] = cos_half * beta - Complex(0, sin_half) * alpha;
+                // R_Y matrix: [[cos(θ/2), -sin(θ/2)], [sin(θ/2), cos(θ/2)]]
+                state_[i] = cos_half * alpha - sin_half * beta;
+                state_[j] = sin_half * alpha + cos_half * beta;
+            }
+        }
+    }
+
+    void apply_rotation_z(int qubit, double angle) {
+        // R_Z gate: rotation around Z axis
+        Complex phase_0 = std::exp(Complex(0, -angle / 2.0));
+        Complex phase_1 = std::exp(Complex(0, angle / 2.0));
+
+        size_t qubit_mask = 1ULL << qubit;
+
+        for (size_t i = 0; i < state_size_; ++i) {
+            if ((i & qubit_mask) == 0) {
+                // qubit is 0: apply e^(-iθ/2)
+                state_[i] *= phase_0;
+            } else {
+                // qubit is 1: apply e^(iθ/2)
+                state_[i] *= phase_1;
             }
         }
     }

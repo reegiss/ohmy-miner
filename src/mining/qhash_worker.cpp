@@ -161,11 +161,20 @@ bool QHashWorker::try_nonce(const ohmy::pool::WorkPackage& work, uint32_t nonce)
 }
 
 std::string QHashWorker::compute_qhash(const std::string& block_header, [[maybe_unused]] uint32_t nonce, uint32_t nTime) {
-    // 1. Hash → Circuit Parameters: SHA256d(block_header) seeds quantum gate rotation angles
-    std::string seed_hash = sha256d(block_header);
+    // 1. Initial Hash: SHA256 of block header (NOT double SHA256!)
+    // Bug #6 fix: Official uses single SHA256 for input, we need to match that
+    std::vector<uint8_t> header_bytes(block_header.begin(), block_header.end());
+    std::vector<uint8_t> initial_hash = sha256_raw(header_bytes);
+    
+    // Convert to hex for circuit generation (temporary, will refactor)
+    std::stringstream ss;
+    for (uint8_t byte : initial_hash) {
+        ss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(byte);
+    }
+    std::string hash_hex = ss.str();
     
     // 2. Generate quantum circuit from hash (with temporal fork awareness)
-    auto circuit = generate_circuit_from_hash(seed_hash, nTime);
+    auto circuit = generate_circuit_from_hash(hash_hex, nTime);
     
     // 3. Simulate quantum circuit
     auto expectations = simulate_circuit(circuit);
@@ -209,78 +218,88 @@ std::string QHashWorker::compute_qhash(const std::string& block_header, [[maybe_
         }
     }
     
-    // 6. Convert to hex string for XOR operation
-    std::stringstream ss;
-    for (uint8_t byte : fixed_point_bytes) {
-        ss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(byte);
+    // 6. Final Hash: SHA256(initial_hash + quantum_fixed_point) - Bug #6 fix
+    // Official: Write initial_hash bytes, then fixed_point bytes, then single SHA256
+    std::vector<uint8_t> combined_data;
+    combined_data.reserve(32 + 32);  // 32 bytes hash + 32 bytes quantum
+    
+    // Append initial hash bytes
+    combined_data.insert(combined_data.end(), initial_hash.begin(), initial_hash.end());
+    
+    // Append quantum fixed-point bytes
+    combined_data.insert(combined_data.end(), fixed_point_bytes.begin(), fixed_point_bytes.end());
+    
+    // Single SHA256 (NOT double!)
+    std::vector<uint8_t> final_hash = sha256_raw(combined_data);
+    
+    // Convert final hash to hex string
+    std::stringstream final_ss;
+    for (uint8_t byte : final_hash) {
+        final_ss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(byte);
     }
     
-    std::string quantum_output = ss.str();
-    
-    // 7. Final Hash: XOR quantum output with initial hash → SHA256d (Bitcoin standard)
-    // XOR the quantum output with seed hash (simplified)
-    std::string combined = seed_hash + quantum_output;
-    
-    // Final SHA256d as per Bitcoin/Qubitcoin standard
-    return sha256d(combined);
+    return final_ss.str();
 }
 
 quantum::QuantumCircuit QHashWorker::generate_circuit_from_hash(const std::string& hash_hex, uint32_t nTime) {
     // Official qhash specification: 16 qubits, 2 layers
-    // Per layer: 16 R_Y + 15 CNOT + 16 R_Z = 47 operations
-    // Total: 94 operations (2 layers × 47)
-    // Reference: super-quantum/qubitcoin qhash.{h,cpp}
+    // Per layer: R_Y[i] → R_Z[i] for each qubit, then CNOT chain
+    // Reference: super-quantum/qubitcoin qhash.cpp lines 61-85
     constexpr int NUM_QUBITS = 16;
+    constexpr int NUM_LAYERS = 2;
     quantum::QuantumCircuit circuit(NUM_QUBITS);
     
     // Temporal flag for Fork #4 (Sep 17, 2025 16:00 UTC)
-    // Changes angle parametrization after this timestamp
     const int temporal_flag = (nTime >= 1758762000) ? 1 : 0;
     
-    // Extract 64 nibbles from 32-byte hash (256 bits = 64 nibbles of 4 bits each)
+    // Convert hex string to raw bytes
+    std::vector<uint8_t> hash_bytes;
+    hash_bytes.reserve(32);
+    
+    for (size_t i = 0; i + 1 < hash_hex.length(); i += 2) {
+        std::string byte_str = hash_hex.substr(i, 2);
+        uint8_t byte = static_cast<uint8_t>(std::stoul(byte_str, nullptr, 16));
+        hash_bytes.push_back(byte);
+    }
+    
+    // Ensure we have 32 bytes
+    while (hash_bytes.size() < 32) {
+        hash_bytes.push_back(0);
+    }
+    
+    // Extract nibbles from bytes using bit operations (Bug #3 fix)
+    // Official: splitNibbles() in qhash.h:39-49
     std::vector<uint8_t> nibbles;
     nibbles.reserve(64);
     
-    for (size_t i = 0; i < hash_hex.length() && nibbles.size() < 64; ++i) {
-        char c = hash_hex[i];
-        uint8_t nibble;
-        if (c >= '0' && c <= '9') {
-            nibble = c - '0';
-        } else if (c >= 'a' && c <= 'f') {
-            nibble = c - 'a' + 10;
-        } else if (c >= 'A' && c <= 'F') {
-            nibble = c - 'A' + 10;
-        } else {
-            continue; // Skip non-hex characters
+    for (uint8_t byte : hash_bytes) {
+        nibbles.push_back((byte >> 4) & 0xF);  // High nibble
+        nibbles.push_back(byte & 0xF);          // Low nibble
+    }
+    
+    // Apply gates layer by layer
+    for (int layer = 0; layer < NUM_LAYERS; ++layer) {
+        // Bug #1 & #2 fix: Interleave R_Y and R_Z for each qubit
+        // Official order: R_Y[i] → R_Z[i] for i in [0..15], then CNOT chain
+        for (int qubit = 0; qubit < NUM_QUBITS; ++qubit) {
+            // Bug #4 fix: Use correct nibble index formulas
+            // R_Y uses: (2 * layer * NUM_QUBITS + qubit) % 64
+            size_t ry_index = (2 * layer * NUM_QUBITS + qubit) % 64;
+            uint8_t ry_nibble = nibbles[ry_index];
+            double ry_angle = -(2.0 * ry_nibble + temporal_flag) * M_PI / 32.0;
+            circuit.add_rotation(qubit, ry_angle, quantum::RotationAxis::Y);
+            
+            // R_Z uses: ((2 * layer + 1) * NUM_QUBITS + qubit) % 64
+            size_t rz_index = ((2 * layer + 1) * NUM_QUBITS + qubit) % 64;
+            uint8_t rz_nibble = nibbles[rz_index];
+            double rz_angle = -(2.0 * rz_nibble + temporal_flag) * M_PI / 32.0;
+            circuit.add_rotation(qubit, rz_angle, quantum::RotationAxis::Z);
         }
-        nibbles.push_back(nibble);
-    }
-    
-    // Ensure we have exactly 64 nibbles (pad with zeros if needed)
-    while (nibbles.size() < 64) {
-        nibbles.push_back(0);
-    }
-    
-    // Phase 1: Apply R_Y gates to all 16 qubits (operations 0-15)
-    // Formula: angle = -(2*nibble + temporal_flag) * π/32
-    for (int i = 0; i < NUM_QUBITS; ++i) {
-        uint8_t nibble = nibbles[i * 2]; // Use even-indexed nibbles for R_Y
-        double angle = -(2.0 * nibble + temporal_flag) * M_PI / 32.0;
-        circuit.add_rotation(i, angle); // R_Y rotation
-    }
-    
-    // Phase 2: Apply CNOT chain (operations 32-62)
-    // Creates entanglement: CNOT(i, i+1) for i=0..30
-    for (int i = 0; i < NUM_QUBITS - 1; ++i) {
-        circuit.add_cnot(i, i + 1);
-    }
-    
-    // Phase 3: Apply R_Z gates to qubits 1-31 (operations 63-93)
-    // Uses odd-indexed nibbles, same angle formula
-    for (int i = 1; i < NUM_QUBITS; ++i) {
-        uint8_t nibble = nibbles[i * 2 - 1]; // Use odd-indexed nibbles for R_Z
-        double angle = -(2.0 * nibble + temporal_flag) * M_PI / 32.0;
-        circuit.add_rotation(i, angle); // R_Z rotation (need to add support for R_Z)
+        
+        // Apply CNOT chain: CNOT(i, i+1) for i in [0..14]
+        for (int i = 0; i < NUM_QUBITS - 1; ++i) {
+            circuit.add_cnot(i, i + 1);
+        }
     }
     
     return circuit;
@@ -313,6 +332,32 @@ std::string QHashWorker::sha256d(const std::string& input) {
     }
     
     return ss.str();
+}
+
+std::vector<uint8_t> QHashWorker::sha256_raw(const std::vector<uint8_t>& input) {
+    // Single SHA256
+    std::vector<uint8_t> hash(SHA256_DIGEST_LENGTH);
+    
+    EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+    if (ctx == nullptr) {
+        throw std::runtime_error("Failed to create EVP_MD_CTX");
+    }
+    
+    if (EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr) != 1 ||
+        EVP_DigestUpdate(ctx, input.data(), input.size()) != 1) {
+        EVP_MD_CTX_free(ctx);
+        throw std::runtime_error("Failed to compute SHA256");
+    }
+    
+    unsigned int hash_len;
+    if (EVP_DigestFinal_ex(ctx, hash.data(), &hash_len) != 1) {
+        EVP_MD_CTX_free(ctx);
+        throw std::runtime_error("Failed to finalize SHA256");
+    }
+    
+    EVP_MD_CTX_free(ctx);
+    
+    return hash;
 }
 
 std::vector<uint8_t> QHashWorker::sha256d_raw(const std::vector<uint8_t>& input) {

@@ -19,9 +19,15 @@ using StateVector = std::vector<Complex>;
 /**
  * Quantum gate definitions
  */
+enum class RotationAxis {
+    Y,  // R_Y gate (rotation around Y axis)
+    Z   // R_Z gate (rotation around Z axis)
+};
+
 struct RotationGate {
     int qubit;
     double angle;  // Rotation angle in radians
+    RotationAxis axis;  // Rotation axis (Y or Z)
 };
 
 struct CNOTGate {
@@ -37,7 +43,7 @@ public:
     QuantumCircuit(int num_qubits);
     
     // Gate operations
-    void add_rotation(int qubit, double angle);
+    void add_rotation(int qubit, double angle, RotationAxis axis = RotationAxis::Y);
     void add_cnot(int control, int target);
     void clear();
     
