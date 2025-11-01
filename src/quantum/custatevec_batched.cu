@@ -77,11 +77,7 @@ __global__ void z_expectations_kernel(const cuComplex* __restrict__ batchedSv,
 	const int tid = threadIdx.x;
 	const int blockN = blockDim.x;
 
-	// Each thread accumulates per-qubit partial sums in registers
-	// Assume nQ is small (<= 16). Here typical is 1-8.
-	extern __shared__ double smem[]; // size = nQ * blockDim.x, indexed as smem[m * blockN + tid]
-
-	// Initialize local accumulators
+	extern __shared__ double smem[];
 	double accMax[16];
 	#pragma unroll
 	for (int m = 0; m < 16; ++m) accMax[m] = 0.0;
@@ -89,7 +85,6 @@ __global__ void z_expectations_kernel(const cuComplex* __restrict__ batchedSv,
 	for (size_t idx = tid; idx < state_size; idx += blockN) {
 		cuComplex a = batchedSv[base + idx];
 		double pr = static_cast<double>(a.x) * static_cast<double>(a.x) + static_cast<double>(a.y) * static_cast<double>(a.y);
-		// Accumulate for each qubit
 		#pragma unroll 4
 		for (int m = 0; m < nQ; ++m) {
 			int qb = qubits[m];
@@ -98,12 +93,10 @@ __global__ void z_expectations_kernel(const cuComplex* __restrict__ batchedSv,
 		}
 	}
 
-	// Write to shared memory and reduce per qubit
 	#pragma unroll 4
 	for (int m = 0; m < nQ; ++m) {
 		smem[m * blockN + tid] = accMax[m];
 		__syncthreads();
-		// Reduce over threads
 		for (int stride = blockN >> 1; stride > 0; stride >>= 1) {
 			if (tid < stride) {
 				smem[m * blockN + tid] += smem[m * blockN + tid + stride];

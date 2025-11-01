@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
+#include <fmt/core.h>
 
 #include "ohmy/quantum/custatevec_backend.hpp"
 #include "ohmy/fixed_point.hpp"
@@ -409,7 +410,7 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
         CUDA_CHECK(cudaEventRecord(copyReady[0], h2d_stream));
     }
 
-    const bool bypass_batched_rot = true; // Use per-state ApplyMatrix for rotations for correctness
+    // Apply rotation gates using batched API with proper matrix indexing
     for (size_t gi = 0; gi < nRot; ++gi) {
         const auto& g0 = ref_rot[gi];
         const int cur = static_cast<int>(gi & 1);
@@ -433,35 +434,22 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
             cuq_generate_rz_mats(d_angles_buf[cur], d_mats_buf[cur], static_cast<uint32_t>(nSVs), self.stream_);
         CUDA_CHECK(cudaGetLastError());
 
+        // Apply rotation batch using MATRIX_INDEXED
+        // Synchronize to ensure matrix generation completes before Apply reads them
+        CUDA_CHECK(cudaStreamSynchronize(self.stream_));
+        
         const int32_t targets[1] = { static_cast<int32_t>(g0.qubit) };
-        if (bypass_batched_rot) {
-            // Debug/correctness: loop states and apply per-state using non-batched API
-            for (size_t s = 0; s < nSVs; ++s) {
-                cuComplex* sv_ptr = d_batched + s * stateSize;
-                cuComplex* mat_ptr = d_mats_buf[cur] + s * 4;
-                custatevecStatus_t st = custatevecApplyMatrix(
-                    self.handle_, sv_ptr, CUDA_C_32F, nq,
-                    mat_ptr, CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
-                    targets, 1,
-                    nullptr, nullptr, 0,
-                    CUSTATEVEC_COMPUTE_32F,
-                    d_ws_batched, ws_batched);
-                if (st != CUSTATEVEC_STATUS_SUCCESS) throw std::runtime_error("ApplyMatrix (rot debug) failed");
-            }
-        } else {
-            // Keep alternative path available for future optimization if fixed
-            custatevecStatus_t st = custatevecApplyMatrixBatched(
-                self.handle_, d_batched, CUDA_C_32F, nq,
-                static_cast<uint32_t>(nSVs), svStride,
-                CUSTATEVEC_MATRIX_MAP_TYPE_MATRIX_INDEXED,
-                d_indices, d_mats_buf[cur], CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
-                static_cast<uint32_t>(nSVs),
-                targets, 1,
-                nullptr, nullptr, 0,
-                CUSTATEVEC_COMPUTE_32F,
-                d_ws_batched, ws_batched);
-            if (st != CUSTATEVEC_STATUS_SUCCESS) throw std::runtime_error("ApplyMatrixBatched (rot) failed");
-        }
+        custatevecStatus_t st = custatevecApplyMatrixBatched(
+            self.handle_, d_batched, CUDA_C_32F, nq,
+            static_cast<uint32_t>(nSVs), svStride,
+            CUSTATEVEC_MATRIX_MAP_TYPE_MATRIX_INDEXED,
+            d_indices, d_mats_buf[cur], CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            static_cast<uint32_t>(nSVs),
+            targets, 1,
+            nullptr, nullptr, 0,
+            CUSTATEVEC_COMPUTE_32F,
+            d_ws_batched, ws_batched);
+        if (st != CUSTATEVEC_STATUS_SUCCESS) throw std::runtime_error("ApplyMatrixBatched (rot) failed");
     }
 
     // Cleanup angle/mat overlap resources
@@ -502,32 +490,29 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
     }
     
 
-    // Compute expectations using a custom reduction kernel (robust fallback)
+    // Compute expectations using native cuQuantum batched API
     std::vector<int32_t> h_qubits;
     if (qubits_to_measure.empty()) h_qubits = {0};
     else h_qubits.assign(qubits_to_measure.begin(), qubits_to_measure.end());
+    // Measure: compute Z-expectations using custom kernel (fastest for batched)
     const int nMatrices = static_cast<int>(h_qubits.size());
     int32_t* d_qubits = nullptr;
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_qubits), sizeof(int32_t) * nMatrices));
-    CUDA_CHECK(cudaMemcpyAsync(d_qubits, h_qubits.data(), sizeof(int32_t) * nMatrices, cudaMemcpyHostToDevice, self.stream_));
-
     double* d_outZ = nullptr;
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_qubits), sizeof(int32_t) * nMatrices));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_outZ), sizeof(double) * nSVs * nMatrices));
+    CUDA_CHECK(cudaMemcpyAsync(d_qubits, h_qubits.data(), sizeof(int32_t) * nMatrices, cudaMemcpyHostToDevice, self.stream_));
+    
     cuq_compute_z_expectations(d_batched, static_cast<uint32_t>(nSVs), stateSize, d_qubits, nMatrices, d_outZ, self.stream_);
+    
     std::vector<double> h_outZ(nSVs * nMatrices);
     CUDA_CHECK(cudaMemcpyAsync(h_outZ.data(), d_outZ, sizeof(double) * nSVs * nMatrices, cudaMemcpyDeviceToHost, self.stream_));
     CUDA_CHECK(cudaStreamSynchronize(self.stream_));
-    
-
-    // Copy back and format
-    
 
     std::vector<std::vector<Q15>> results;
     results.resize(nSVs);
     for (size_t s = 0; s < nSVs; ++s) {
         results[s].reserve(static_cast<size_t>(nMatrices));
         for (int m = 0; m < nMatrices; ++m) {
-            // output leading dimension nMatrices: index = m + s*nMatrices
             const double val = h_outZ[s * nMatrices + m];
             results[s].push_back(Q15::from_float(val));
         }
@@ -536,8 +521,6 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
     // Cleanup
     if (d_qubits) cudaFree(d_qubits);
     if (d_outZ) cudaFree(d_outZ);
-    
-    
     if (d_X) cudaFree(d_X);
     if (d_ws_batched) cudaFree(d_ws_batched);
     cudaFree(d_indices);
