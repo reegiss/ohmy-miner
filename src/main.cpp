@@ -21,6 +21,9 @@
 #include "ohmy/quantum/simulator.hpp"
 #include "ohmy/quantum/cuda_types.hpp"
 #include "ohmy/quantum/batched_cuda_simulator.hpp"
+#ifdef OHMY_WITH_CUQUANTUM
+#include "ohmy/quantum/custatevec_backend.hpp"
+#endif
 
 
 void print_usage(const std::string& message = "") {

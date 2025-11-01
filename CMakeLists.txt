@@ -69,7 +69,7 @@ link_directories(
 )
 
 # --- Optional: cuQuantum (custatevec) backend ---
-option(OHMY_WITH_CUQUANTUM "Enable cuQuantum custatevec backend" OFF)
+option(OHMY_WITH_CUQUANTUM "Enable cuQuantum custatevec backend" ON)
 option(OHMY_CUQUANTUM_USE_PAULI_ROTATION "Use cuStateVec PauliRotation for Y/Z (faster, no H2D matrices)" ON)
 
 if(OHMY_WITH_CUQUANTUM)

@@ -4,6 +4,9 @@
  */
 
 #include "ohmy/quantum/batched_cuda_simulator.hpp"
+#ifdef OHMY_WITH_CUQUANTUM
+#include "ohmy/quantum/custatevec_backend.hpp"
+#endif
 #include <fmt/format.h>
 
 namespace ohmy {
@@ -78,9 +81,26 @@ BatchedCudaSimulator::BatchedCudaSimulator(int num_qubits, int batch_size, int d
         ));
     }
     
+#ifdef OHMY_WITH_CUQUANTUM
+    // Initialize cuQuantum backend for optimal performance
+    try {
+        cuquantum_backend_ = std::make_unique<CuQuantumSimulator>(num_qubits_);
+        use_cuquantum_ = true;
+        fmt::print("[cuQuantum] Initialized {} with {} qubits, batch size {}\n",
+                   device_info_.name, num_qubits_, batch_size_);
+        fmt::print("[cuQuantum] Using NVIDIA custatevec for quantum simulation\n");
+    } catch (const std::exception& e) {
+        use_cuquantum_ = false;
+        fmt::print("[cuQuantum] Failed to initialize: {}, falling back to custom CUDA kernels\n", e.what());
+        fmt::print("[CUDA Batch] Initialized {} with {} qubits, batch size {}\n",
+                   device_info_.name, num_qubits_, batch_size_);
+    }
+#else
     fmt::print("[CUDA Batch] Initialized {} with {} qubits, batch size {}\n",
                device_info_.name, num_qubits_, batch_size_);
-    fmt::print("[CUDA Batch] Memory: {} ({} per state × {} states)\n",
+#endif
+    
+    fmt::print("[Batch] Memory: {} ({} per state × {} states)\n",
                MemoryRequirements::format_bytes(total_memory_needed),
                MemoryRequirements::format_bytes(state_size_ * sizeof(Complex)),
                batch_size_);
@@ -178,6 +198,14 @@ std::vector<std::vector<Q15>> BatchedCudaSimulator::simulate_and_measure_batch(
         ));
     }
     
+#ifdef OHMY_WITH_CUQUANTUM
+    // Use cuQuantum backend for optimal performance when available
+    if (use_cuquantum_ && cuquantum_backend_) {
+        return cuquantum_backend_->simulate_and_measure_batched(circuits, qubits_to_measure);
+    }
+#endif
+    
+    // Fallback to custom CUDA kernels
     // Validate all circuits have same structure
     const auto& ref_circuit = circuits[0];
     for (size_t i = 1; i < circuits.size(); i++) {

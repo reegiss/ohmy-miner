@@ -12,6 +12,12 @@
 
 namespace ohmy {
 namespace quantum {
+
+#ifdef OHMY_WITH_CUQUANTUM
+// Forward declaration
+class CuQuantumSimulator;
+#endif
+
 namespace cuda {
 
 /**
@@ -89,6 +95,12 @@ private:
     
     // Device info
     DeviceInfo device_info_;
+    
+#ifdef OHMY_WITH_CUQUANTUM
+    // cuQuantum backend for optimal performance
+    std::unique_ptr<CuQuantumSimulator> cuquantum_backend_;
+    bool use_cuquantum_ = true;
+#endif
     
     // Helper methods
     void reset_batch();
