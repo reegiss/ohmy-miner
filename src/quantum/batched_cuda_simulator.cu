@@ -44,16 +44,30 @@ extern __global__ void cnot_chain_kernel(
     int num_qubits,
     size_t state_size);
 
+// Helper: auto-tune batch size based on free VRAM (leave 20% headroom)
+static int auto_tune_batch_size(int desired_batch, int num_qubits, int device_id) {
+    DeviceInfo info = DeviceInfo::query(device_id);
+    size_t state_size = (1ULL << num_qubits);
+    size_t mem_per_state = state_size * sizeof(Complex);
+    // Be conservative: reserve ~66% headroom to account for additional buffers/workspace
+    size_t usable = static_cast<size_t>(info.free_memory * 0.34);
+    int max_by_mem = static_cast<int>(usable / mem_per_state);
+    // Round down to nearest 256 for nicer scheduling
+    if (max_by_mem > 0) max_by_mem = (max_by_mem / 256) * 256;
+    int tuned = std::max(256, std::min(desired_batch, max_by_mem));
+    return tuned;
+}
+
 // --- Constructor ---
 
 BatchedCudaSimulator::BatchedCudaSimulator(int num_qubits, int batch_size, int device_id)
     : num_qubits_(num_qubits)
-    , batch_size_(batch_size)
+    , batch_size_(auto_tune_batch_size(batch_size, num_qubits, device_id))
     , device_id_(device_id)
     , state_size_(1ULL << num_qubits)
     , block_size_(DEFAULT_BLOCK_SIZE)
-    , d_batch_states_(batch_size * state_size_)
-    , d_batch_expectations_(batch_size)
+    , d_batch_states_(auto_tune_batch_size(batch_size, num_qubits, device_id) * state_size_)
+    , d_batch_expectations_(auto_tune_batch_size(batch_size, num_qubits, device_id))
     , compute_stream_()
 {
     // Set device
@@ -70,15 +84,10 @@ BatchedCudaSimulator::BatchedCudaSimulator(int num_qubits, int batch_size, int d
         ));
     }
     
-    // Check memory requirements
-    size_t total_memory_needed = batch_size * state_size_ * sizeof(Complex);
-    if (device_info_.free_memory < total_memory_needed * 1.2) {
-        throw std::runtime_error(fmt::format(
-            "Insufficient GPU memory for batch size {}: need {}, have {} free",
-            batch_size,
-            MemoryRequirements::format_bytes(total_memory_needed * 1.2),
-            MemoryRequirements::format_bytes(device_info_.free_memory)
-        ));
+    // Inform if auto-tuned down
+    if (batch_size_ < batch_size) {
+        fmt::print("[Batch] Auto-tuned batch size from {} to {} based on free VRAM ({} free)\n",
+                   batch_size, batch_size_, MemoryRequirements::format_bytes(device_info_.free_memory));
     }
     
 #ifdef OHMY_WITH_CUQUANTUM
@@ -100,8 +109,9 @@ BatchedCudaSimulator::BatchedCudaSimulator(int num_qubits, int batch_size, int d
                device_info_.name, num_qubits_, batch_size_);
 #endif
     
+    size_t total_memory_used = static_cast<size_t>(batch_size_) * state_size_ * sizeof(Complex);
     fmt::print("[Batch] Memory: {} ({} per state × {} states)\n",
-               MemoryRequirements::format_bytes(total_memory_needed),
+               MemoryRequirements::format_bytes(total_memory_used),
                MemoryRequirements::format_bytes(state_size_ * sizeof(Complex)),
                batch_size_);
     

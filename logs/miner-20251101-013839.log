@@ -1,0 +1,15 @@
+[01:38:39] Initializing GPUs...
+[01:38:39] Using static difficulty: 60K (formatted as: bc1qacadts4usj2tjljwdemfu44a2tq47hch33fc6f=60K.R3G)
+[01:38:39] Job monitor started (stats interval: 10s)
+[01:38:39] Jobs rcvd: 0, processed: 0, pending: 0, workers: 0
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE     0.00 H/s   51C    0%   14W     - 1530  7000     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                     0.00 H/s Power: 14W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[01:38:40] GPU #0: NVIDIA GeForce GTX 1660 SUPER [busID: 8] [arch: sm75] [driver: 13]
+[01:38:40] Failed to initialize GPU worker: Insufficient GPU memory for batch size 8192: need 4.80 GB, have 1.48 GB free
+[01:38:41] Job monitor stopped

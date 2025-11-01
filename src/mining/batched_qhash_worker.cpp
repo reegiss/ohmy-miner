@@ -28,11 +28,85 @@ BatchedQHashWorker::BatchedQHashWorker(
     
     stats_.batch_size = batch_size_;
     
-    // quiet init
+    // Allocate triple-buffering resources
+    try {
+    // Calculate buffer sizes (state/workspace omitted in Phase 1)
+        
+        // Allocate 3x lightweight I/O GPU buffers (angles/mats/indices/results)
+        // NOTE: We DO NOT allocate state vectors or workspace here in Phase 1.
+        // The cuQuantum backend manages its own state/workspace for the sync path.
+        for (int i = 0; i < kNumBuffers; ++i) {
+            d_io_buffers_[i] = std::make_unique<quantum::GpuBatchBuffers>();
+            d_io_buffers_[i]->allocate(batch_size_, /*state_size=*/0, num_qubits_, /*workspace_sz=*/0);
+        }
+        
+        // Allocate 3x host pinned buffers
+        for (int i = 0; i < kNumBuffers; ++i) {
+            h_pinned_buffers_[i] = std::make_unique<quantum::HostPinnedBuffers>();
+            h_pinned_buffers_[i]->allocate(batch_size_, num_qubits_);
+        }
+        
+        // Create CUDA streams
+        streams_ = std::make_unique<quantum::GpuPipelineStreams>();
+        streams_->create();
+        
+        // Create CUDA events for synchronization
+        for (int i = 0; i < kNumBuffers; ++i) {
+            cudaEventCreateWithFlags(&h2d_events_[i], cudaEventDisableTiming);
+            cudaEventCreateWithFlags(&compute_events_[i], cudaEventDisableTiming);
+            cudaEventCreateWithFlags(&d2h_events_[i], cudaEventDisableTiming);
+        }
+        
+        // Pre-allocate CPU work buffers
+        for (int i = 0; i < kNumBuffers; ++i) {
+            cpu_circuits_buf_[i].reserve(batch_size_);
+            cpu_nonces_buf_[i].reserve(batch_size_);
+        }
+        
+        ohmy::log::line("GPU #{}: Triple-buffering pipeline initialized ({} nonces/batch, {} qubits)",
+                       worker_id_, batch_size_, num_qubits_);
+        
+    } catch (const std::exception& e) {
+        ohmy::log::line("GPU #{}: Failed to initialize pipeline: {}", worker_id_, e.what());
+        throw;
+    }
 }
 
 BatchedQHashWorker::~BatchedQHashWorker() {
     stop_work();
+    
+    // Synchronize all streams before cleanup
+    if (streams_) {
+        cudaStreamSynchronize(streams_->h2d_stream);
+        cudaStreamSynchronize(streams_->compute_stream);
+        cudaStreamSynchronize(streams_->d2h_stream);
+    }
+    
+    // Destroy events
+    for (int i = 0; i < kNumBuffers; ++i) {
+        if (h2d_events_[i]) cudaEventDestroy(h2d_events_[i]);
+        if (compute_events_[i]) cudaEventDestroy(compute_events_[i]);
+        if (d2h_events_[i]) cudaEventDestroy(d2h_events_[i]);
+    }
+    
+    // Destroy streams
+    if (streams_) {
+        streams_->destroy();
+    }
+    
+    // Free device buffers
+    for (int i = 0; i < kNumBuffers; ++i) {
+        if (d_io_buffers_[i]) {
+            d_io_buffers_[i]->free();
+        }
+    }
+    
+    // Free host buffers
+    for (int i = 0; i < kNumBuffers; ++i) {
+        if (h_pinned_buffers_[i]) {
+            h_pinned_buffers_[i]->free();
+        }
+    }
 }
 
 void BatchedQHashWorker::process_work(const ohmy::pool::WorkPackage& work) {
@@ -87,91 +161,178 @@ void BatchedQHashWorker::mine_job(const ohmy::pool::WorkPackage& work) {
     
     uint32_t start_nonce = 0;
     
-    // quiet
-    
-    // Generate unique extranonce2 for this job (NOT per batch)
-    // In Stratum protocol:
-    // - extranonce1 is fixed per connection (from pool)
-    // - extranonce2 is miner's nonce space extension (when 32-bit nonce exhausted)
-    // - nonce is the primary iteration variable (0 to 2^32-1)
-    // For GPU mining, we use a FIXED extranonce2 per job and iterate nonce.
-    // Only increment extranonce2 if we exhaust all 4 billion nonces (very rare).
-    
-    // Use worker_id to avoid collisions if running multiple GPU workers
+    // Generate unique extranonce2 for this job
     extranonce2_counter_ = static_cast<uint64_t>(worker_id_);
     
     std::string job_extranonce2 = format_extranonce2(
         extranonce2_counter_, 
-        work.extranonce2.length()  // Match pool's extranonce2 size
+        work.extranonce2.length()
     );
     
     // Create modified work package with our unique extranonce2
     ohmy::pool::WorkPackage modified_work = work;
     modified_work.extranonce2 = job_extranonce2;
     
-    // quiet
-    
     try {
-        while (!should_stop_.load()) {
-            // Process batch of nonces with SAME extranonce2
-            
-            auto valid_nonces = try_nonce_batch(modified_work, start_nonce, batch_size_);
-            
-            // Submit all valid shares with same extranonce2
-            for (uint32_t nonce : valid_nonces) {
-                ohmy::pool::ShareResult share;
-                share.job_id = modified_work.job_id;
-                share.nonce = nonce;
-                share.ntime = modified_work.time;
-                share.extranonce2 = job_extranonce2;  // Fixed extranonce2 for this job
-                share.difficulty = (modified_work.share_difficulty > 0.0) ? modified_work.share_difficulty : 1.0;
-                share.accepted = true;
-                
-                {
-                    std::lock_guard<std::mutex> lock(stats_mutex_);
-                    stats_.shares_found++;
-                }
-                
-                if (share_callback_) {
-                    share_callback_(share);
-                }
-                
-                // Compact share found line handled by Stratum submit result
+        // Convert time for circuit generation
+        uint32_t nTime = static_cast<uint32_t>(std::stoul(work.time, nullptr, 16));
+        
+        // Prepare qubits to measure (all 16 qubits for qhash)
+        std::vector<int> qubits_to_measure;
+        for (int i = 0; i < num_qubits_; ++i) {
+            qubits_to_measure.push_back(i);
+        }
+        
+        // Triple-buffering state
+        int buffer_idx = 0;
+        int iteration = 0;
+        
+        // Pre-fill first 2 buffers (prepare batch 0 and 1)
+        for (int i = 0; i < 2 && !should_stop_.load(); ++i) {
+            // Generate nonces for this batch
+            cpu_nonces_buf_[i].clear();
+            for (int j = 0; j < batch_size_; ++j) {
+                cpu_nonces_buf_[i].push_back(start_nonce + j);
             }
             
-            // Update statistics
-            {
-                std::lock_guard<std::mutex> lock(stats_mutex_);
-                stats_.hashes_computed += batch_size_;
-                
-                auto now = std::chrono::steady_clock::now();
-                auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
-                    now - last_hashrate_update_);
-                
-                if (elapsed.count() >= 5) { // Update every 5 seconds
-                    uint64_t hashes_done = stats_.hashes_computed - last_hash_count_;
-                    stats_.hashrate = static_cast<double>(hashes_done) / elapsed.count();
-                    
-                    // Periodic hashrate reported by JobMonitor table
-                    
-                    last_hashrate_update_ = now;
-                    last_hash_count_ = stats_.hashes_computed;
-                }
-            }
+            // Generate circuits on CPU
+            cpu_circuits_buf_[i] = generate_circuits_batch(modified_work, cpu_nonces_buf_[i], nTime);
             
             start_nonce += batch_size_;
+        }
+        
+        // Main pipeline loop
+        while (!should_stop_.load()) {
+            const int idx_current = buffer_idx;  // Batch N (preparing)
+            const int idx_compute = (buffer_idx + kNumBuffers - 1) % kNumBuffers;  // Batch N-1 (computing)
+            const int idx_collect = (buffer_idx + kNumBuffers - 2) % kNumBuffers;  // Batch N-2 (collecting)
+            
+            // --- STAGE 1: Collect results from batch N-2 (if iteration >= 2) ---
+            if (iteration >= 2) {
+                // Wait for D2H transfer to complete
+                CUDA_CHECK(cudaEventSynchronize(d2h_events_[idx_collect]));
+                
+                // Process results from batch N-2
+                auto& nonces = cpu_nonces_buf_[idx_collect];
+                auto& circuits = cpu_circuits_buf_[idx_collect];
+                
+                // Call the existing result processing logic
+                auto valid_nonces = process_batch_results(
+                    modified_work, nonces, circuits, nTime, qubits_to_measure, idx_collect);
+                
+                // Submit shares
+                for (uint32_t nonce : valid_nonces) {
+                    ohmy::pool::ShareResult share;
+                    share.job_id = modified_work.job_id;
+                    share.nonce = nonce;
+                    share.ntime = modified_work.time;
+                    share.extranonce2 = job_extranonce2;
+                    share.difficulty = (modified_work.share_difficulty > 0.0) ? modified_work.share_difficulty : 1.0;
+                    share.accepted = true;
+                    
+                    {
+                        std::lock_guard<std::mutex> lock(stats_mutex_);
+                        stats_.shares_found++;
+                    }
+                    
+                    if (share_callback_) {
+                        share_callback_(share);
+                    }
+                }
+                
+                // Update statistics
+                {
+                    std::lock_guard<std::mutex> lock(stats_mutex_);
+                    stats_.hashes_computed += batch_size_;
+                    
+                    auto now = std::chrono::steady_clock::now();
+                    auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
+                        now - last_hashrate_update_);
+                    
+                    if (elapsed.count() >= 5) {
+                        uint64_t hashes_done = stats_.hashes_computed - last_hash_count_;
+                        stats_.hashrate = static_cast<double>(hashes_done) / elapsed.count();
+                        
+                        last_hashrate_update_ = now;
+                        last_hash_count_ = stats_.hashes_computed;
+                    }
+                }
+            }
+            
+            // --- STAGE 2: Launch computation for batch N-1 (if iteration >= 1) ---
+            if (iteration >= 1) {
+                // Simulate circuits on GPU (async call - will use sync wrapper for phase 1)
+                auto results = simulator_->get_cuquantum_backend()->simulate_and_measure_batched_async(
+                    cpu_circuits_buf_[idx_compute],
+                    qubits_to_measure,
+                    *d_io_buffers_[idx_compute],
+                    *h_pinned_buffers_[idx_compute],
+                    *streams_);
+                
+                // Store results temporarily (in phase 1, sync call returns immediately)
+                // In phase 2, we'll eliminate this and use async D2H
+                // For now, mark events as done
+                CUDA_CHECK(cudaEventRecord(compute_events_[idx_compute], streams_->compute_stream));
+                CUDA_CHECK(cudaEventRecord(d2h_events_[idx_compute], streams_->d2h_stream));
+                
+                // Store results for later collection
+                // (Temporary: in phase 2 this will be DMA'd directly to pinned memory)
+                store_batch_results(idx_compute, results);
+            }
+            
+            // --- STAGE 3: Prepare batch N (always) ---
+            // Generate nonces
+            cpu_nonces_buf_[idx_current].clear();
+            for (int j = 0; j < batch_size_; ++j) {
+                cpu_nonces_buf_[idx_current].push_back(start_nonce + j);
+            }
+            
+            // Generate circuits on CPU (this overlaps with GPU work)
+            cpu_circuits_buf_[idx_current] = generate_circuits_batch(
+                modified_work, cpu_nonces_buf_[idx_current], nTime);
+            
+            // Advance
+            start_nonce += batch_size_;
+            buffer_idx = (buffer_idx + 1) % kNumBuffers;
+            iteration++;
             
             // Prevent overflow
             if (start_nonce == 0) {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
             }
         }
+        
+        // Drain remaining buffers after stop signal
+        for (int remaining = 0; remaining < 2 && iteration >= 2; ++remaining) {
+            buffer_idx = (buffer_idx + 1) % kNumBuffers;
+            const int idx_collect = (buffer_idx + kNumBuffers - 2) % kNumBuffers;
+            
+            CUDA_CHECK(cudaEventSynchronize(d2h_events_[idx_collect]));
+            
+            auto valid_nonces = process_batch_results(
+                modified_work, cpu_nonces_buf_[idx_collect], 
+                cpu_circuits_buf_[idx_collect], nTime, qubits_to_measure, idx_collect);
+            
+            for (uint32_t nonce : valid_nonces) {
+                ohmy::pool::ShareResult share;
+                share.job_id = modified_work.job_id;
+                share.nonce = nonce;
+                share.ntime = modified_work.time;
+                share.extranonce2 = job_extranonce2;
+                share.difficulty = (modified_work.share_difficulty > 0.0) ? modified_work.share_difficulty : 1.0;
+                share.accepted = true;
+                
+                if (share_callback_) {
+                    share_callback_(share);
+                }
+            }
+        }
+        
     } catch (const std::exception& e) {
-    ohmy::log::line("Worker {} error: {}", worker_id_, e.what());
+        ohmy::log::line("Worker {} error: {}", worker_id_, e.what());
     }
     
     is_working_.store(false);
-    // quiet
 }
 
 std::vector<uint32_t> BatchedQHashWorker::try_nonce_batch(
@@ -565,6 +726,96 @@ std::string BatchedQHashWorker::format_extranonce2(uint64_t counter, size_t hex_
     }
     
     return result;
+}
+
+void BatchedQHashWorker::store_batch_results(int buffer_idx, const std::vector<std::vector<Q15>>& results) {
+    stored_results_[buffer_idx] = results;
+}
+
+std::vector<std::vector<Q15>> BatchedQHashWorker::get_stored_results(int buffer_idx) {
+    return stored_results_[buffer_idx];
+}
+
+std::vector<uint32_t> BatchedQHashWorker::process_batch_results(
+    const ohmy::pool::WorkPackage& work,
+    const std::vector<uint32_t>& nonces,
+    [[maybe_unused]] const std::vector<quantum::QuantumCircuit>& circuits,
+    uint32_t nTime,
+    [[maybe_unused]] const std::vector<int>& qubits_to_measure,
+    int buffer_idx)
+{
+    std::vector<uint32_t> valid_nonces;
+    
+    // Get stored results
+    auto all_expectations = get_stored_results(buffer_idx);
+    
+    // Check each result against target
+    for (size_t i = 0; i < nonces.size() && i < all_expectations.size(); ++i) {
+        const auto& expectations = all_expectations[i];
+        
+        // Convert expectations to fixed-point bytes
+        std::vector<uint8_t> fixed_point_bytes;
+        fixed_point_bytes.reserve(32);
+        
+        for (const auto& exp : expectations) {
+            int16_t raw = static_cast<int16_t>(exp.raw());
+            fixed_point_bytes.push_back(static_cast<uint8_t>(raw & 0xFF));
+            fixed_point_bytes.push_back(static_cast<uint8_t>((raw >> 8) & 0xFF));
+        }
+        
+        // Zero validation (Fork #1, #2, #3)
+        int zero_count = 0;
+        for (uint8_t byte : fixed_point_bytes) {
+            if (byte == 0) zero_count++;
+        }
+        
+        // Apply temporal fork rules
+        bool is_invalid = false;
+        
+        if (nTime >= 1753105444 && zero_count == 32) {
+            is_invalid = true;
+        }
+        
+        if (nTime >= 1753305380 && zero_count >= 24) {
+            is_invalid = true;
+        }
+        
+        if (nTime >= 1754220531 && zero_count >= 8) {
+            is_invalid = true;
+        }
+        
+        if (is_invalid) {
+            continue;
+        }
+        
+        // Compute final hash
+        std::string block_header = format_block_header(work, nonces[i]);
+        std::vector<uint8_t> header_bytes(block_header.begin(), block_header.end());
+        std::vector<uint8_t> initial_hash = sha256_raw(header_bytes);
+        
+        std::vector<uint8_t> combined_data;
+        combined_data.reserve(64);
+        combined_data.insert(combined_data.end(), initial_hash.begin(), initial_hash.end());
+        combined_data.insert(combined_data.end(), fixed_point_bytes.begin(), fixed_point_bytes.end());
+        
+        std::vector<uint8_t> final_hash = sha256_raw(combined_data);
+        
+        // Convert to hex string
+        std::stringstream final_ss;
+        for (uint8_t byte : final_hash) {
+            final_ss << std::hex << std::setfill('0') << std::setw(2) << static_cast<int>(byte);
+        }
+        std::string hash_hex = final_ss.str();
+        
+        // Check if meets target
+        const std::string& target_param = !work.share_target_hex.empty() ? work.share_target_hex : work.bits;
+        
+        if (meets_target(hash_hex, target_param)) {
+            valid_nonces.push_back(nonces[i]);
+        }
+    }
+    
+    return valid_nonces;
 }
 
 } // namespace mining

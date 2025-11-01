@@ -265,9 +265,18 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // GPU MODE: Create single batched worker with optimized batch size
-        constexpr int BATCH_SIZE = 8192;  // Optimized for 12GB GPU with triple-buffering
+        // GPU MODE: Create single batched worker with auto-tuned batch size
         constexpr int NUM_QUBITS = 16;
+        // Auto-tune batch size based on free VRAM (leave 20% headroom)
+        size_t state_size_bytes = (1ULL << NUM_QUBITS) * sizeof(ohmy::quantum::cuda::Complex);
+        size_t usable_mem = static_cast<size_t>(gpu_info.free_memory * 0.8);
+        int max_batch_by_mem = static_cast<int>(usable_mem / state_size_bytes);
+        int desired_batch = 8192; // target for 12GB GPUs; will clamp below
+        int BATCH_SIZE = std::max(256, std::min(desired_batch, max_batch_by_mem));
+        if (BATCH_SIZE < desired_batch) {
+            ohmy::log::line("Auto-tuned batch size from {} to {} based on free VRAM ({} free)",
+                            desired_batch, BATCH_SIZE, ohmy::quantum::cuda::MemoryRequirements::format_bytes(gpu_info.free_memory));
+        }
 
         if (!params.no_mining) {
             try {

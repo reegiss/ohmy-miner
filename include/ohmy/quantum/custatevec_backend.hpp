@@ -112,6 +112,16 @@ public:
         const std::vector<QuantumCircuit>& circuits,
         const std::vector<int>& qubits_to_measure);
 
+    // New async pipeline API: externally-managed buffers and streams
+    // This version allows triple-buffered pipeline execution with overlapped H2D/Compute/D2H
+    // Returns results immediately (sync wrapper for phase 1, will be async in phase 2)
+    std::vector<std::vector<Q15>> simulate_and_measure_batched_async(
+        const std::vector<QuantumCircuit>& circuits,
+        const std::vector<int>& qubits_to_measure,
+        GpuBatchBuffers& buffers,
+        HostPinnedBuffers& host_buffers,
+        GpuPipelineStreams& streams);
+
     int max_qubits() const override { return max_qubits_; }
     bool supports_batch() const override { return false; }
     std::string backend_name() const override { return "CUQUANTUM"; }

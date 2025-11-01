@@ -30,6 +30,72 @@ namespace quantum {
     } while (0)
 #endif
 
+// ===== GpuBatchBuffers Implementation =====
+
+void GpuBatchBuffers::allocate(size_t nSVs, size_t state_size, int num_qubits, size_t workspace_sz) {
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_batched_states), nSVs * state_size * sizeof(cuComplex)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_angles_buf[0]), nSVs * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_angles_buf[1]), nSVs * sizeof(float)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_mats_buf[0]), nSVs * 4 * sizeof(cuComplex)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_mats_buf[1]), nSVs * 4 * sizeof(cuComplex)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_indices), nSVs * sizeof(int32_t)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_qubits), num_qubits * sizeof(int32_t)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_outZ), nSVs * num_qubits * sizeof(double)));
+    if (workspace_sz > 0) {
+        CUDA_CHECK(cudaMalloc(&d_workspace, workspace_sz));
+    }
+    workspace_size = workspace_sz;
+}
+
+void GpuBatchBuffers::free() {
+    if (d_batched_states) cudaFree(d_batched_states);
+    if (d_angles_buf[0]) cudaFree(d_angles_buf[0]);
+    if (d_angles_buf[1]) cudaFree(d_angles_buf[1]);
+    if (d_mats_buf[0]) cudaFree(d_mats_buf[0]);
+    if (d_mats_buf[1]) cudaFree(d_mats_buf[1]);
+    if (d_indices) cudaFree(d_indices);
+    if (d_qubits) cudaFree(d_qubits);
+    if (d_outZ) cudaFree(d_outZ);
+    if (d_workspace) cudaFree(d_workspace);
+    std::memset(this, 0, sizeof(*this));
+}
+
+// ===== GpuPipelineStreams Implementation =====
+
+void GpuPipelineStreams::create() {
+    CUDA_CHECK(cudaStreamCreateWithFlags(&h2d_stream, cudaStreamNonBlocking));
+    CUDA_CHECK(cudaStreamCreateWithFlags(&compute_stream, cudaStreamNonBlocking));
+    CUDA_CHECK(cudaStreamCreateWithFlags(&d2h_stream, cudaStreamNonBlocking));
+    CUDA_CHECK(cudaEventCreateWithFlags(&h2d_done, cudaEventDisableTiming));
+    CUDA_CHECK(cudaEventCreateWithFlags(&compute_done, cudaEventDisableTiming));
+}
+
+void GpuPipelineStreams::destroy() {
+    if (h2d_stream) cudaStreamDestroy(h2d_stream);
+    if (compute_stream) cudaStreamDestroy(compute_stream);
+    if (d2h_stream) cudaStreamDestroy(d2h_stream);
+    if (h2d_done) cudaEventDestroy(h2d_done);
+    if (compute_done) cudaEventDestroy(compute_done);
+    std::memset(this, 0, sizeof(*this));
+}
+
+// ===== HostPinnedBuffers Implementation =====
+
+void HostPinnedBuffers::allocate(size_t nSVs, int num_measurements) {
+    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_angles_pinned[0]), nSVs * sizeof(float)));
+    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_angles_pinned[1]), nSVs * sizeof(float)));
+    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_results_pinned), nSVs * num_measurements * sizeof(double)));
+}
+
+void HostPinnedBuffers::free() {
+    if (h_angles_pinned[0]) cudaFreeHost(h_angles_pinned[0]);
+    if (h_angles_pinned[1]) cudaFreeHost(h_angles_pinned[1]);
+    if (h_results_pinned) cudaFreeHost(h_results_pinned);
+    std::memset(this, 0, sizeof(*this));
+}
+
+// ===== CuQuantumSimulator Implementation =====
+
 // Host-callable wrappers implemented in custatevec_batched.cu
 extern "C" void cuq_set_basis_zero_for_batch(cuComplex* batchedSv, uint32_t nSVs, size_t state_size, cudaStream_t stream);
 extern "C" void cuq_generate_ry_mats(const float* angles, cuComplex* outMats, uint32_t nSVs, cudaStream_t stream);
@@ -533,6 +599,30 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
 std::vector<std::vector<Q15>> CuQuantumSimulator::simulate_and_measure_batched(
     const std::vector<QuantumCircuit>& circuits,
     const std::vector<int>& qubits_to_measure) {
+    return cuquantum_simulate_and_measure_batched(*this, circuits, qubits_to_measure);
+}
+
+// ============================================================================
+// ASYNC TRIPLE-BUFFERED PIPELINE VERSION
+// ============================================================================
+// For now, this is a wrapper that uses the existing synchronous implementation
+// but with external buffer management. Full async implementation will be done
+// after validating the pipeline architecture works correctly.
+
+std::vector<std::vector<Q15>> CuQuantumSimulator::simulate_and_measure_batched_async(
+    const std::vector<QuantumCircuit>& circuits,
+    const std::vector<int>& qubits_to_measure,
+    GpuBatchBuffers& buffers,
+    HostPinnedBuffers& host_buffers,
+    GpuPipelineStreams& streams)
+{
+    // For phase 1 implementation: call existing sync version
+    // The caller will handle the async orchestration via events
+    (void)buffers;        // Will use in phase 2
+    (void)host_buffers;   // Will use in phase 2
+    (void)streams;        // Will use in phase 2
+    
+    // Use internal implementation for now
     return cuquantum_simulate_and_measure_batched(*this, circuits, qubits_to_measure);
 }
 

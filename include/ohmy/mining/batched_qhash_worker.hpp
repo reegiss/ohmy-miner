@@ -7,10 +7,12 @@
 
 #include "ohmy/pool/work.hpp"
 #include "ohmy/quantum/batched_cuda_simulator.hpp"
+#include "ohmy/quantum/custatevec_backend.hpp"
 #include <memory>
 #include <atomic>
 #include <vector>
 #include <functional>
+#include <cuda_runtime.h>
 
 namespace ohmy {
 namespace mining {
@@ -65,6 +67,22 @@ private:
         uint32_t nTime
     );
     
+    // Process batch results and return valid nonces
+    std::vector<uint32_t> process_batch_results(
+        const ohmy::pool::WorkPackage& work,
+        const std::vector<uint32_t>& nonces,
+        const std::vector<quantum::QuantumCircuit>& circuits,
+        uint32_t nTime,
+        const std::vector<int>& qubits_to_measure,
+        int buffer_idx
+    );
+    
+    // Store batch results temporarily (phase 1)
+    void store_batch_results(int buffer_idx, const std::vector<std::vector<Q15>>& results);
+    
+    // Retrieve stored batch results
+    std::vector<std::vector<Q15>> get_stored_results(int buffer_idx);
+    
     // Hash utilities
     std::vector<uint8_t> sha256_raw(const std::vector<uint8_t>& input);
     std::vector<uint8_t> sha256d_raw(const std::vector<uint8_t>& input);
@@ -91,6 +109,31 @@ private:
     std::atomic<bool> should_stop_{false};
     std::atomic<bool> is_working_{false};
     std::function<void(const ohmy::pool::ShareResult&)> share_callback_;
+    
+    // Triple-buffering pipeline (3x buffers for H2D | Compute | D2H overlap)
+    static constexpr int kNumBuffers = 3;
+    
+    // Host pinned memory for async transfers (3x)
+    std::array<std::unique_ptr<quantum::HostPinnedBuffers>, kNumBuffers> h_pinned_buffers_;
+    
+    // Device buffers (3x complete buffers: states + angles + matrices + workspace)
+    std::array<std::unique_ptr<quantum::GpuBatchBuffers>, kNumBuffers> d_io_buffers_;
+    
+    // CUDA streams and events for pipeline orchestration
+    std::unique_ptr<quantum::GpuPipelineStreams> streams_;
+    std::array<cudaEvent_t, kNumBuffers> h2d_events_;
+    std::array<cudaEvent_t, kNumBuffers> compute_events_;
+    std::array<cudaEvent_t, kNumBuffers> d2h_events_;
+    
+    // CPU work buffers (prepared while GPU processes previous batch)
+    std::array<std::vector<quantum::QuantumCircuit>, kNumBuffers> cpu_circuits_buf_;
+    std::array<std::vector<uint32_t>, kNumBuffers> cpu_nonces_buf_;
+    
+    // Temporary result storage (phase 1 - will be removed in phase 2 async)
+    std::array<std::vector<std::vector<Q15>>, kNumBuffers> stored_results_;
+    
+    // Pipeline state
+    int num_qubits_{16};  // qhash uses 16 qubits
     
     // Extranonce2 management for unique share identification
     uint64_t extranonce2_counter_ = 0;

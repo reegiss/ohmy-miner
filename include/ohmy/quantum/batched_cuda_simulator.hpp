@@ -80,6 +80,13 @@ public:
      */
     DeviceInfo get_device_info() const { return device_info_; }
 
+#ifdef OHMY_WITH_CUQUANTUM
+    /**
+     * Get cuQuantum backend (for direct pipeline access)
+     */
+    CuQuantumSimulator* get_cuquantum_backend() const { return cuquantum_backend_.get(); }
+#endif
+
 private:
     // Configuration
     int num_qubits_;
