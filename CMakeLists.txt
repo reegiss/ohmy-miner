@@ -70,6 +70,7 @@ link_directories(
 
 # --- Optional: cuQuantum (custatevec) backend ---
 option(OHMY_WITH_CUQUANTUM "Enable cuQuantum custatevec backend" OFF)
+option(OHMY_CUQUANTUM_USE_PAULI_ROTATION "Use cuStateVec PauliRotation for Y/Z (faster, no H2D matrices)" ON)
 
 if(OHMY_WITH_CUQUANTUM)
   # Try to locate cuQuantum via CUQUANTUM_ROOT or system paths
@@ -88,6 +89,9 @@ if(OHMY_WITH_CUQUANTUM)
   if(CUQUANTUM_INCLUDE_DIR AND CUQUANTUM_custatevec_LIBRARY)
     message(STATUS "cuQuantum found: ${CUQUANTUM_INCLUDE_DIR}")
     add_compile_definitions(OHMY_WITH_CUQUANTUM)
+    if(OHMY_CUQUANTUM_USE_PAULI_ROTATION)
+      add_compile_definitions(OHMY_CUQUANTUM_USE_PAULI_ROTATION)
+    endif()
     include_directories(${CUQUANTUM_INCLUDE_DIR})
     set(HAVE_CUQUANTUM TRUE)
   else()
@@ -104,18 +108,18 @@ add_executable(ohmy-miner
   src/pool/work_manager.cpp
   src/pool/job_monitor.cpp
   src/quantum/circuit.cpp
-  src/quantum/cpu_simulator.cpp
   src/quantum/simulator_factory.cpp
   src/mining/batched_qhash_worker.cpp
-  # CUDA quantum simulator
+  # Active GPU backend(s) for miner
   src/quantum/cuda_device.cu
   src/quantum/cuda_kernels.cu
-  src/quantum/cuda_simulator.cu
   src/quantum/batched_cuda_simulator.cu
+  src/quantum/fused_kernels.cu
 )
 
 # A definição ASIO_STANDALONE ainda é necessária
 target_compile_definitions(ohmy-miner PRIVATE ASIO_STANDALONE)
+target_compile_definitions(ohmy-miner PRIVATE OHMY_NO_CPU_BACKEND OHMY_NO_CUDA_SINGLE)
 
 # Ligar contra todas as bibliotecas necessárias
 target_link_libraries(ohmy-miner PRIVATE

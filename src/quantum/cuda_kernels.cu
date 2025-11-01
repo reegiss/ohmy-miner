@@ -346,12 +346,24 @@ __global__ void apply_rotation_y_batch_kernel(
     // Global thread ID
     size_t global_idx = blockIdx.x * blockDim.x + threadIdx.x;
     size_t pairs_per_state = state_size / 2;
-    size_t total_pairs = batch_size * pairs_per_state;
+    size_t total_pairs = static_cast<size_t>(batch_size) * pairs_per_state;
     
-    if (global_idx >= total_pairs) return;
+    if (global_idx >= total_pairs) {
+        return;
+    }
     
+    __shared__ float s_sin_half;
+    __shared__ float s_cos_half;
+    if (threadIdx.x == 0) {
+        float sin_half, cos_half;
+        __sincosf(angle * 0.5f, &sin_half, &cos_half);
+        s_sin_half = sin_half;
+        s_cos_half = cos_half;
+    }
+    __syncthreads();
+
     // Determine which state and which pair
-    int batch_idx = global_idx / pairs_per_state;
+    size_t batch_idx = global_idx / pairs_per_state;
     size_t pair_idx = global_idx % pairs_per_state;
     
     // Calculate amplitude indices within this state
@@ -366,19 +378,15 @@ __global__ void apply_rotation_y_batch_kernel(
     Complex alpha = states[idx0];
     Complex beta = states[idx1];
     
-    // Compute rotation
-    float cos_half, sin_half;
-    __sincosf(angle * 0.5f, &sin_half, &cos_half);
-    
     // Apply gate
     Complex new_alpha = cuCsubf(
-        cuCmulf(make_cuFloatComplex(cos_half, 0.0f), alpha),
-        cuCmulf(make_cuFloatComplex(sin_half, 0.0f), beta)
+        cuCmulf(make_cuFloatComplex(s_cos_half, 0.0f), alpha),
+        cuCmulf(make_cuFloatComplex(s_sin_half, 0.0f), beta)
     );
     
     Complex new_beta = cuCaddf(
-        cuCmulf(make_cuFloatComplex(sin_half, 0.0f), alpha),
-        cuCmulf(make_cuFloatComplex(cos_half, 0.0f), beta)
+        cuCmulf(make_cuFloatComplex(s_sin_half, 0.0f), alpha),
+        cuCmulf(make_cuFloatComplex(s_cos_half, 0.0f), beta)
     );
     
     states[idx0] = new_alpha;
@@ -396,25 +404,33 @@ __global__ void apply_rotation_z_batch_kernel(
     size_t state_size
 ) {
     size_t global_idx = blockIdx.x * blockDim.x + threadIdx.x;
-    size_t total_elements = batch_size * state_size;
+    size_t total_elements = static_cast<size_t>(batch_size) * state_size;
     
-    if (global_idx >= total_elements) return;
-    
+    if (global_idx >= total_elements) {
+        return;
+    }
+
+    __shared__ Complex s_phase_zero;
+    __shared__ Complex s_phase_one;
+    if (threadIdx.x == 0) {
+        float sin_half, cos_half;
+        __sincosf(angle * 0.5f, &sin_half, &cos_half);
+        s_phase_zero = make_cuFloatComplex(cos_half, -sin_half);
+        s_phase_one = make_cuFloatComplex(cos_half, sin_half);
+    }
+    __syncthreads();
+
     // Check if target qubit is |1⟩
     size_t amplitude_idx = global_idx % state_size;
     bool qubit_is_one = (amplitude_idx & (1ULL << target_qubit)) != 0;
-    
-    // Compute phase
-    float cos_half, sin_half;
-    __sincosf(angle * 0.5f, &sin_half, &cos_half);
-    
+
     Complex phase;
     if (qubit_is_one) {
-        phase = make_cuFloatComplex(cos_half, sin_half);
+        phase = s_phase_one;
     } else {
-        phase = make_cuFloatComplex(cos_half, -sin_half);
+        phase = s_phase_zero;
     }
-    
+
     states[global_idx] = cuCmulf(states[global_idx], phase);
 }
 

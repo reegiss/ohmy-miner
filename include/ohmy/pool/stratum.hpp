@@ -37,12 +37,14 @@ public:
      * @param url Pool URL in format hostname:port
      * @param worker_name Worker name/wallet for mining
      * @param password Pool password (usually 'x')
+     * @param enable_extranonce_subscribe Enable mining.extranonce.subscribe for pools that support dynamic extranonce changes
      */
     StratumClient(
         asio::io_context& io_context,
         const std::string& url,
         const std::string& worker_name,
-        const std::string& password = "x"
+        const std::string& password = "x",
+        bool enable_extranonce_subscribe = false
     );
 
     virtual ~StratumClient() = default;
@@ -60,18 +62,30 @@ public:
     void set_share_callback(ShareCallback callback);
     void set_difficulty_callback(DifficultyCallback callback);
 
+    // Advisory options to send after successful authorization
+    void set_send_capabilities(bool enable, const std::string& suggested_target_hex = "");
+    void set_suggest_target(std::string full_hex_target);
+    void set_suggest_difficulty(double difficulty);
+
 protected:
     // Core protocol methods
     virtual void subscribe();
     virtual void authorize();
+    virtual void extranonce_subscribe();  // Request dynamic extranonce support
     virtual void suggest_difficulty(double difficulty);
+    // Optional client->server methods
+    virtual void capabilities(const std::string& suggested_target_hex = "");
+    virtual void suggest_target(const std::string& full_hex_target);
+    virtual void get_transactions(const std::string& job_id);
     virtual void handle_mining_notify(const json& params);
     virtual void handle_set_difficulty(const json& params);
+    virtual void handle_set_extranonce(const json& params);  // Handle extranonce changes
     virtual void handle_submit_result(const json& result, bool accepted);
 
     // Message handling
     virtual void send_message(const json& message);
     virtual void handle_message(const std::string& message);
+    virtual void send_response(uint64_t id, const json& result);
 
 protected:
     // Network operations
@@ -81,6 +95,7 @@ private:
     // Internal state
     bool subscribed_ = false;
     bool authorized_ = false;
+    bool enable_extranonce_subscribe_ = false;  // Enable dynamic extranonce support
     double current_difficulty_ = 0.0;
     std::string extranonce1_;        // Extranonce1 from mining.subscribe
     int extranonce2_size_ = 8;       // Extranonce2 size (bytes, usually 8)
@@ -112,6 +127,13 @@ private:
         std::string nonce_hex;
     };
     std::unordered_map<uint64_t, PendingShare> pending_submits_;
+
+    // Advisory flags (sent after authorize)
+    bool send_capabilities_ = false;
+    std::string cap_suggested_target_;
+    bool have_suggest_diff_ = false;
+    double suggested_diff_ = 0.0;
+    std::string suggested_target_;
 };
 
 // Helper struct for mining work units

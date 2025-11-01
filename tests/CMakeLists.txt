@@ -3,6 +3,9 @@
 
 cmake_minimum_required(VERSION 3.22)
 
+# Experimental tests are opt-in to avoid breaking default test runs
+option(OHMY_ENABLE_EXPERIMENTAL_TESTS "Enable experimental/diagnostic tests" OFF)
+
 # Test executable names
 set(TEST_EXECUTABLES
     test_fixed_point
@@ -10,14 +13,17 @@ set(TEST_EXECUTABLES
     test_difficulty
     test_quantum_simulator
     test_stratum_messages
+    test_stratum_optional
     test_cuda_backend
     test_performance_baseline
     test_batch_performance
+    test_cuquantum_backend
 )
 
 # Include parent directories for headers
 include_directories(${CMAKE_SOURCE_DIR}/include)
 include_directories(${CMAKE_SOURCE_DIR}/src)
+include_directories(${asio_SOURCE_DIR}/asio/include)
 
 # Build each test executable
 foreach(test_name ${TEST_EXECUTABLES})
@@ -72,6 +78,12 @@ target_sources(test_stratum_messages PRIVATE
     ${CMAKE_SOURCE_DIR}/src/pool/messages.cpp
 )
 
+# Optional Stratum methods & server-initiated requests tests
+target_sources(test_stratum_optional PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/pool/stratum_client.cpp
+)
+target_compile_definitions(test_stratum_optional PRIVATE ASIO_STANDALONE)
+
 # CUDA backend validation test
 target_sources(test_cuda_backend PRIVATE
     ${CMAKE_SOURCE_DIR}/src/quantum/circuit.cpp
@@ -104,10 +116,69 @@ target_sources(test_batch_performance PRIVATE
     ${CMAKE_SOURCE_DIR}/src/quantum/cuda_device.cu
     ${CMAKE_SOURCE_DIR}/src/quantum/cuda_kernels.cu
     ${CMAKE_SOURCE_DIR}/src/quantum/batched_cuda_simulator.cu
+    ${CMAKE_SOURCE_DIR}/src/quantum/fused_kernels.cu
     ${CMAKE_SOURCE_DIR}/src/fixed_point.cpp
 )
 
 target_link_libraries(test_batch_performance PRIVATE CUDA::cudart)
+
+# cuQuantum backend validation test needs circuit and factory
+target_sources(test_cuquantum_backend PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/quantum/circuit.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/simulator_factory.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/cpu_simulator.cpp
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_device.cu
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_kernels.cu
+    ${CMAKE_SOURCE_DIR}/src/quantum/cuda_simulator.cu
+    ${CMAKE_SOURCE_DIR}/src/fixed_point.cpp
+)
+target_link_libraries(test_cuquantum_backend PRIVATE CUDA::cudart)
+
+
+# cuQuantum PauliRotation validation (enable macro to exercise that path)
+if(OHMY_ENABLE_EXPERIMENTAL_TESTS)
+    add_executable(test_cuquantum_pauli_rotation test_cuquantum_pauli_rotation.cpp)
+    target_link_libraries(test_cuquantum_pauli_rotation PRIVATE
+        fmt::fmt nlohmann_json::nlohmann_json OpenSSL::Crypto CUDA::cudart)
+    target_compile_features(test_cuquantum_pauli_rotation PRIVATE cxx_std_20)
+    add_test(NAME test_cuquantum_pauli_rotation COMMAND test_cuquantum_pauli_rotation)
+    target_sources(test_cuquantum_pauli_rotation PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/quantum/circuit.cpp
+        ${CMAKE_SOURCE_DIR}/src/quantum/simulator_factory.cpp
+        ${CMAKE_SOURCE_DIR}/src/quantum/cpu_simulator.cpp
+        ${CMAKE_SOURCE_DIR}/src/quantum/cuda_device.cu
+        ${CMAKE_SOURCE_DIR}/src/quantum/cuda_kernels.cu
+        ${CMAKE_SOURCE_DIR}/src/quantum/cuda_simulator.cu
+        ${CMAKE_SOURCE_DIR}/src/fixed_point.cpp)
+endif()
+
+# Link cuQuantum backend into tests when enabled
+if(OHMY_WITH_CUQUANTUM AND HAVE_CUQUANTUM)
+    foreach(tgt IN ITEMS test_quantum_simulator test_cuda_backend test_performance_baseline test_cuquantum_backend)
+        target_sources(${tgt} PRIVATE
+            ${CMAKE_SOURCE_DIR}/src/quantum/custatevec_backend.cpp
+            ${CMAKE_SOURCE_DIR}/src/quantum/custatevec_batched.cu)
+        target_link_libraries(${tgt} PRIVATE ${CUQUANTUM_custatevec_LIBRARY})
+    endforeach()
+    # Batched cuQuantum test
+    add_executable(test_cuquantum_batched test_cuquantum_batched.cpp)
+    target_link_libraries(test_cuquantum_batched PRIVATE fmt::fmt nlohmann_json::nlohmann_json OpenSSL::Crypto CUDA::cudart ${CUQUANTUM_custatevec_LIBRARY})
+    target_compile_features(test_cuquantum_batched PRIVATE cxx_std_20)
+    target_sources(test_cuquantum_batched PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/quantum/circuit.cpp
+        ${CMAKE_SOURCE_DIR}/src/quantum/custatevec_backend.cpp
+        ${CMAKE_SOURCE_DIR}/src/quantum/custatevec_batched.cu
+        ${CMAKE_SOURCE_DIR}/src/fixed_point.cpp)
+    add_test(NAME test_cuquantum_batched COMMAND test_cuquantum_batched)
+    if(OHMY_ENABLE_EXPERIMENTAL_TESTS)
+        # Enable PauliRotation path only for the dedicated test
+        target_sources(test_cuquantum_pauli_rotation PRIVATE
+            ${CMAKE_SOURCE_DIR}/src/quantum/custatevec_backend.cpp
+            ${CMAKE_SOURCE_DIR}/src/quantum/custatevec_batched.cu)
+        target_link_libraries(test_cuquantum_pauli_rotation PRIVATE ${CUQUANTUM_custatevec_LIBRARY})
+        target_compile_definitions(test_cuquantum_pauli_rotation PRIVATE OHMY_CUQUANTUM_USE_PAULI_ROTATION=1)
+    endif()
+endif()
 
 # Enable testing
 enable_testing()

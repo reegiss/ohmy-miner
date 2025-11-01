@@ -26,6 +26,21 @@ extern __global__ void apply_cnot_batch_kernel(
 extern __global__ void compute_z_expectation_batch_kernel(
     const Complex* states, int batch_size, int target_qubit, size_t state_size, float* expectations);
 
+// Fused kernels (optional fast path)
+extern __global__ void fused_single_qubit_gates_kernel(
+    Complex* states,
+    const float* ry_angles,
+    const float* rz_angles,
+    int batch_size,
+    int num_qubits,
+    size_t state_size);
+
+extern __global__ void cnot_chain_kernel(
+    Complex* states,
+    int batch_size,
+    int num_qubits,
+    size_t state_size);
+
 // --- Constructor ---
 
 BatchedCudaSimulator::BatchedCudaSimulator(int num_qubits, int batch_size, int device_id)
@@ -175,14 +190,76 @@ std::vector<std::vector<Q15>> BatchedCudaSimulator::simulate_and_measure_batch(
     // Reset all states
     reset_batch();
     
-    // Apply gates from reference circuit
-    // (In qhash, all circuits have same gates, only nonce differs in hash seed)
-    for (const auto& gate : ref_circuit.rotation_gates()) {
-        apply_rotation_batch(gate.qubit, static_cast<float>(gate.angle), gate.axis);
+    // Apply gates with optional fusion when patterns match
+    // (In qhash, all circuits have same gates, only angles differ by nonce)
+    const auto& rot = ref_circuit.rotation_gates();
+    bool can_fuse_rot = (static_cast<int>(rot.size()) == 2 * num_qubits_);
+    if (can_fuse_rot) {
+        // Validate exactly one RY and one RZ per qubit in the rotation layer
+        std::vector<int> ry_count(num_qubits_, 0), rz_count(num_qubits_, 0);
+        for (const auto& g : rot) {
+            if (g.qubit < 0 || g.qubit >= num_qubits_) { can_fuse_rot = false; break; }
+            if (g.axis == RotationAxis::Y) ry_count[g.qubit]++; else rz_count[g.qubit]++;
+        }
+        for (int q = 0; can_fuse_rot && q < num_qubits_; ++q) {
+            if (ry_count[q] != 1 || rz_count[q] != 1) { can_fuse_rot = false; }
+        }
     }
-    
-    for (const auto& gate : ref_circuit.cnot_gates()) {
-        apply_cnot_batch(gate.control, gate.target);
+
+    if (can_fuse_rot) {
+        // Prepare angle matrices [batch_size x num_qubits]
+        std::vector<float> h_ry(batch_size_ * num_qubits_, 0.0f);
+        std::vector<float> h_rz(batch_size_ * num_qubits_, 0.0f);
+        for (int b = 0; b < batch_size_; ++b) {
+            const auto& gates = circuits[b].rotation_gates();
+            for (const auto& g : gates) {
+                size_t idx = static_cast<size_t>(b) * num_qubits_ + g.qubit;
+                if (g.axis == RotationAxis::Y) h_ry[idx] = static_cast<float>(g.angle);
+                else h_rz[idx] = static_cast<float>(g.angle);
+            }
+        }
+
+        // Copy to device
+        DeviceMemory<float> d_ry(static_cast<size_t>(batch_size_) * num_qubits_);
+        DeviceMemory<float> d_rz(static_cast<size_t>(batch_size_) * num_qubits_);
+        CUDA_CHECK(cudaMemcpyAsync(d_ry.get(), h_ry.data(), h_ry.size() * sizeof(float), cudaMemcpyHostToDevice, compute_stream_.get()));
+        CUDA_CHECK(cudaMemcpyAsync(d_rz.get(), h_rz.data(), h_rz.size() * sizeof(float), cudaMemcpyHostToDevice, compute_stream_.get()));
+
+        // Launch fused rotations: grid.x over pairs, grid.y over qubits, grid.z over batch
+        size_t num_pairs = state_size_ / 2;
+        unsigned int blocks_x = static_cast<unsigned int>((num_pairs + block_size_ - 1) / block_size_);
+        dim3 grid(blocks_x, static_cast<unsigned int>(num_qubits_), static_cast<unsigned int>(batch_size_));
+        dim3 block(static_cast<unsigned int>(block_size_));
+        fused_single_qubit_gates_kernel<<<grid, block, 0, compute_stream_.get()>>>(
+            d_batch_states_.get(), d_ry.get(), d_rz.get(), batch_size_, num_qubits_, state_size_);
+        CUDA_CHECK(cudaGetLastError());
+    } else {
+        // Fallback: apply rotations gate-by-gate
+        for (const auto& gate : rot) {
+            apply_rotation_batch(gate.qubit, static_cast<float>(gate.angle), gate.axis);
+        }
+    }
+
+    // Apply CNOTs: try chain kernel if pattern matches (0->1, 1->2, ...)
+    const auto& cnot = ref_circuit.cnot_gates();
+    bool is_chain = (static_cast<int>(cnot.size()) == (num_qubits_ - 1));
+    if (is_chain) {
+        for (int i = 0; i < num_qubits_ - 1; ++i) {
+            if (cnot[i].control != i || cnot[i].target != i + 1) { is_chain = false; break; }
+        }
+    }
+
+    if (is_chain) {
+        unsigned int blocks_x = static_cast<unsigned int>((state_size_ + block_size_ - 1) / block_size_);
+        dim3 grid(blocks_x, 1, static_cast<unsigned int>(batch_size_));
+        dim3 block(static_cast<unsigned int>(block_size_));
+        cnot_chain_kernel<<<grid, block, 0, compute_stream_.get()>>>(
+            d_batch_states_.get(), batch_size_, num_qubits_, state_size_);
+        CUDA_CHECK(cudaGetLastError());
+    } else {
+        for (const auto& gate : cnot) {
+            apply_cnot_batch(gate.control, gate.target);
+        }
     }
     
     // Synchronize before measurement
@@ -215,9 +292,9 @@ std::vector<std::vector<Q15>> BatchedCudaSimulator::simulate_and_measure_batch(
 
 dim3 BatchedCudaSimulator::calculate_batch_grid_size(
     size_t elements_per_state,
-    bool /* is_pair_kernel */  // Unused for now, reserved for future optimization
+    bool /* is_pair_kernel */
 ) const {
-    size_t total_elements = batch_size_ * elements_per_state;
+    size_t total_elements = static_cast<size_t>(batch_size_) * elements_per_state;
     size_t num_blocks = (total_elements + block_size_ - 1) / block_size_;
     return dim3(static_cast<unsigned int>(num_blocks));
 }

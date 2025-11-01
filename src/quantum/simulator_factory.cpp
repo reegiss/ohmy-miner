@@ -4,27 +4,41 @@
  */
 
 #include "ohmy/quantum/simulator.hpp"
+#ifndef OHMY_NO_CUDA_SINGLE
 #include "ohmy/quantum/cuda_simulator.hpp"
+#endif
+#ifdef OHMY_WITH_CUQUANTUM
+#include "ohmy/quantum/custatevec_backend.hpp"
+#endif
 #include <stdexcept>
 
 namespace ohmy {
 namespace quantum {
 
+#ifndef OHMY_NO_CPU_BACKEND
 // Forward declaration - CPUSimulator is defined in cpu_simulator.cpp
 extern std::unique_ptr<IQuantumSimulator> create_cpu_simulator(int max_qubits);
+#endif
 
 std::unique_ptr<IQuantumSimulator> SimulatorFactory::create(Backend backend, int max_qubits) {
     switch (backend) {
         case Backend::CPU_BASIC:
+            #ifndef OHMY_NO_CPU_BACKEND
             return create_cpu_simulator(max_qubits);
+            #else
+            throw std::runtime_error("CPU backend disabled in this build");
+            #endif
         
         case Backend::CUDA_CUSTOM:
+            #ifndef OHMY_NO_CUDA_SINGLE
             return std::make_unique<cuda::CudaQuantumSimulator>(max_qubits);
+            #else
+            throw std::runtime_error("CUDA single-state backend disabled in this build");
+            #endif
         
         case Backend::CUQUANTUM:
             #ifdef OHMY_WITH_CUQUANTUM
-            // TODO: Return cuQuantum backend when implemented
-            throw std::runtime_error("CUQUANTUM backend not yet implemented");
+            return std::make_unique<CuQuantumSimulator>(max_qubits);
             #else
             throw std::runtime_error("CUQUANTUM backend not available (compile with -DOHMY_WITH_CUQUANTUM=ON)");
             #endif
@@ -36,8 +50,12 @@ std::unique_ptr<IQuantumSimulator> SimulatorFactory::create(Backend backend, int
 
 std::vector<SimulatorFactory::Backend> SimulatorFactory::available_backends() {
     std::vector<Backend> backends;
+    #ifndef OHMY_NO_CPU_BACKEND
     backends.push_back(Backend::CPU_BASIC);
+    #endif
+    #ifndef OHMY_NO_CUDA_SINGLE
     backends.push_back(Backend::CUDA_CUSTOM);
+    #endif
     
     #ifdef OHMY_WITH_CUQUANTUM
     backends.push_back(Backend::CUQUANTUM);

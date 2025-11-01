@@ -1,0 +1,886 @@
+[20:31:17] Initializing GPUs...
+[20:31:17] Using static difficulty: 60K (formatted as: bc1qacadts4usj2tjljwdemfu44a2tq47hch33fc6f=60K.R3G)
+[20:31:17] Job monitor started (stats interval: 10s)
+[20:31:17] Jobs rcvd: 0, processed: 0, pending: 0, workers: 0
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE     0.00 H/s   51C   50%   15W     - 1530  7000     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                     0.00 H/s Power: 15W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:31:17] GPU #0: NVIDIA GeForce GTX 1660 SUPER [busID: 8] [arch: sm75] [driver: 13]
+[CUDA Batch] Initialized NVIDIA GeForce GTX 1660 SUPER with 16 qubits, batch size 1000
+[CUDA Batch] Memory: 500.00 MB (512.00 KB per state × 1000 states)
+Added worker, total workers: 1
+[20:31:17] threads: 1, intensity: 23, cu: 22, mem: 5613Mb
+Job dispatcher started
+[20:31:17] use pool qubitcoin.luckypool.io:8610 217.182.193.158
+Sending request id=1 method=mining.subscribe
+Sending request id=2 method=mining.authorize
+[20:31:17] Stratum set raw difficulty to 1.0000
+[20:31:17] Expected time per share @ 3KH/s: 16.6 days
+[20:31:17] WARNING: Difficulty may be too high for this hashrate!
+Difficulty updated to: 1
+[20:31:17] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.17M
+[20:31:17] block: 61983
+[20:31:17] job target: 0x00000000ffff0000
+Added job to queue: 3e04 (queue size: 1)
+Processing job: 3e04 (remaining in queue: 0)
+Dispatched job 3e04 to 1 workers in parallel
+[20:31:18] Start mining
+[20:31:27] Jobs rcvd: 1, processed: 1, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    2.80 KH/s   56C   54%   76W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    2.80 KH/s Power: 76W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:31:37] Jobs rcvd: 1, processed: 1, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   57C   56%   77W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 77W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:31:47] Jobs rcvd: 1, processed: 1, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   58C   57%   75W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 75W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:31:57] Jobs rcvd: 1, processed: 1, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   59C   58%   76W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 76W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:32:07] Jobs rcvd: 1, processed: 1, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   60C   59%   63W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 63W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:32:17] Jobs rcvd: 1, processed: 1, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   60C   60%   63W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 63W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:32:20] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.17M
+[20:32:20] block: 61983
+[20:32:20] job target: 0x00000000ffff0000
+Added job to queue: 3e05 (queue size: 1)
+Processing job: 3e05 (remaining in queue: 0)
+[20:32:20] Worker 0 already processing work, ignoring new job
+Dispatched job 3e05 to 1 workers in parallel
+[20:32:27] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   61C   61%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:32:37] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   61C   62%   73W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 73W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:32:47] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   62C   63%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:32:57] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   62C   63%   77W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 77W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:33:07] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   63C   64%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:33:17] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   63C   64%   73W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 73W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:33:27] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   63C   65%   75W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 75W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:33:37] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   63C   65%   65W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 65W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:33:47] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   65%   65W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 65W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:33:57] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   66%   76W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 76W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:34:07] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   66%   77W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 77W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:34:17] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   66%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:34:20] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.17M
+[20:34:20] block: 61983
+[20:34:20] job target: 0x00000000ffff0000
+Added job to queue: 3e06 (queue size: 1)
+Processing job: 3e06 (remaining in queue: 0)
+[20:34:20] Worker 0 already processing work, ignoring new job
+Dispatched job 3e06 to 1 workers in parallel
+[20:34:27] Jobs rcvd: 3, processed: 3, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   66%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:34:37] Jobs rcvd: 3, processed: 3, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   67%   76W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 76W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:34:47] Jobs rcvd: 3, processed: 3, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   67%   77W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 77W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:34:57] Jobs rcvd: 3, processed: 3, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   67%   66W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 66W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:35:03] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.17M
+[20:35:03] block: 61984
+[20:35:03] job target: 0x00000000ffff0000
+Cleared job queue due to clean_jobs flag
+Added job to queue: 3e07 (queue size: 1)
+Processing job: 3e07 (remaining in queue: 0)
+[20:35:03] Worker 0 already processing work, ignoring new job
+Dispatched job 3e07 to 1 workers in parallel
+[20:35:07] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   67%   65W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 65W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:35:17] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   68%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:35:27] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   68%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:35:37] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   68%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:35:47] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   68%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:35:57] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   68%   71W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 71W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:36:07] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   68%   73W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 73W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:36:17] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   68%   68W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 68W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:36:27] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   65W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 65W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:36:37] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   67W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 67W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:36:47] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   80W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 80W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:36:57] Jobs rcvd: 4, processed: 4, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   80W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 80W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:37:03] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.17M
+[20:37:03] block: 61984
+[20:37:03] job target: 0x00000000ffff0000
+Added job to queue: 3e08 (queue size: 1)
+Processing job: 3e08 (remaining in queue: 0)
+[20:37:03] Worker 0 already processing work, ignoring new job
+Dispatched job 3e08 to 1 workers in parallel
+[20:37:07] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   77W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 77W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:37:17] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:37:27] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   65W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 65W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:37:37] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   65W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 65W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:37:47] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:37:57] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:38:07] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:38:17] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:38:27] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   73W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 73W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:38:37] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   69%   74W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 74W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:38:47] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   65W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 65W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:38:57] Jobs rcvd: 5, processed: 5, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   67W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 67W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:39:03] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.17M
+[20:39:03] block: 61984
+[20:39:03] job target: 0x00000000ffff0000
+Added job to queue: 3e09 (queue size: 1)
+Processing job: 3e09 (remaining in queue: 0)
+[20:39:03] Worker 0 already processing work, ignoring new job
+Dispatched job 3e09 to 1 workers in parallel
+[20:39:07] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   80W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 80W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:39:17] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   69%   80W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 80W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:39:27] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:39:37] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:39:47] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   67W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 67W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:39:57] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   68W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 68W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:40:07] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   72W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 72W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:40:17] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   70W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 70W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:40:27] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:40:37] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   80W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 80W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:40:47] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:40:57] Jobs rcvd: 6, processed: 6, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   77W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 77W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:41:01] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.17M
+[20:41:01] block: 61985
+[20:41:01] job target: 0x00000000ffff0000
+Cleared job queue due to clean_jobs flag
+Added job to queue: 3e0a (queue size: 1)
+Processing job: 3e0a (remaining in queue: 0)
+[20:41:01] Worker 0 already processing work, ignoring new job
+Dispatched job 3e0a to 1 workers in parallel
+[20:41:07] Jobs rcvd: 7, processed: 7, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:41:18] Jobs rcvd: 7, processed: 7, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   67W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 67W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:41:28] Jobs rcvd: 7, processed: 7, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   66W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 66W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:41:38] Jobs rcvd: 7, processed: 7, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   75W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 75W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:41:44] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.17M
+[20:41:44] block: 61986
+[20:41:44] job target: 0x00000000ffff0000
+Cleared job queue due to clean_jobs flag
+Added job to queue: 3e0b (queue size: 1)
+Processing job: 3e0b (remaining in queue: 0)
+[20:41:44] Worker 0 already processing work, ignoring new job
+Dispatched job 3e0b to 1 workers in parallel
+[20:41:48] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   75W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 75W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:41:58] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   70%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:42:08] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:42:18] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   64W  0.05 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 64W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:42:28] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   68W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 68W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:42:38] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   73W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 73W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:42:48] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   70%   76W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 76W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:42:58] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   70%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:43:08] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   80W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 80W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:43:18] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   71W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 71W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:43:28] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   70W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 70W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:43:38] Jobs rcvd: 8, processed: 8, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   68W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 68W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:43:44] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.17M
+[20:43:44] block: 61986
+[20:43:44] job target: 0x00000000ffff0000
+Added job to queue: 3e0c (queue size: 1)
+Processing job: 3e0c (remaining in queue: 0)
+[20:43:44] Worker 0 already processing work, ignoring new job
+Dispatched job 3e0c to 1 workers in parallel
+[20:43:48] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   68W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 68W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:43:58] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   81W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 81W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:44:08] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   80W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 80W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:44:18] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   80W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 80W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:44:28] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:44:38] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   78W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 78W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:44:48] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   68W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 68W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:44:58] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   64C   70%   69W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 69W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:45:08] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   68W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 68W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:45:18] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   70W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 70W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:45:28] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   80W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 80W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:45:38] Jobs rcvd: 9, processed: 9, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   79W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 79W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:45:44] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.17M
+[20:45:44] block: 61986
+[20:45:44] job target: 0x00000000ffff0000
+Added job to queue: 3e0d (queue size: 1)
+Processing job: 3e0d (remaining in queue: 0)
+[20:45:44] Worker 0 already processing work, ignoring new job
+Dispatched job 3e0d to 1 workers in parallel
+[20:45:48] Jobs rcvd: 10, processed: 10, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    3.00 KH/s   65C   70%   74W  0.04 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    3.00 KH/s Power: 74W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[20:45:58] Jobs rcvd: 10, processed: 10, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeFor

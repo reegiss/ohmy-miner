@@ -1,16 +1,43 @@
 # Performance Optimization Roadmap
 
-## Current Baseline Performance
-- **Hashrate**: 3 KH/s (~0.003 MH/s)
-- **Hardware**: GTX 1660 SUPER (22 SMs, 6GB VRAM)
-- **Batch Size**: 1000 nonces
-- **Implementation**: Custom CUDA backend with 16 qubits
+**Data**: 2025-10-31  
+**Branch**: `feat/gate-fusion`  
+**Status Atual**: Phase 1 completa - 2.13 KH/s (1.47× baseline)
 
-## Optimization Phases
+---
 
-### Phase 1: Gate Fusion & Kernel Optimization
-**Target**: 10-15× speedup → 30-45 KH/s
-**Estimated Effort**: 1-2 weeks
+## Baseline Performance (Medido)
+- **Hashrate**: 1.45 KH/s (GTX 1660 SUPER, batch 1000)
+- **Hardware**: GTX 1660 SUPER (22 SMs, 6GB VRAM, 350 GB/s bandwidth)
+- **Batch Size**: 1000 nonces simultâneos
+- **Time per circuit**: 0.69 ms (baseline) → 0.47 ms (fusion)
+
+---
+
+## Phase 1: Gate Fusion ✅ COMPLETO
+
+### Implementado
+- Fused single-qubit rotations: 32 kernels → 1 kernel
+- CNOT chain fusion: 15 kernels → 1 kernel
+- Automatic pattern detection and fallback
+
+### Resultados Reais
+- **Speedup**: 1.47× (2.13 KH/s vs 1.45 KH/s)
+- **Kernel Reduction**: 47 → 2 launches per circuit
+- **Gap vs Expected**: Esperado 10×, alcançado 1.47×
+
+### Análise do Gap
+**Hipótese inicial**: Launch overhead era o bottleneck  
+**Realidade**: Sistema é **memory-bound**, não launch-bound
+
+**Evidência**:
+- Tempo por circuito quase linear com batch size (0.47-0.48 ms)
+- Throughput saturado em ~2.13 KH/s independente do batch
+- Memory footprint: 500 MB para batch 1000 (próximo ao limite bandwidth)
+
+---
+
+## Caminho para 10-20 KH/s: Estratégia Baseada em Dados
 
 #### 1.1 Circuit Analysis
 Current circuit structure (per layer):

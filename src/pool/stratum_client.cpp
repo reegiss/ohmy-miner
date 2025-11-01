@@ -91,8 +91,10 @@ StratumClient::StratumClient(
     asio::io_context& io_context,
     const std::string& url,
     const std::string& worker_name,
-    const std::string& password
-)   : io_context_(io_context)
+    const std::string& password,
+    bool enable_extranonce_subscribe
+)   : enable_extranonce_subscribe_(enable_extranonce_subscribe)
+    , io_context_(io_context)
     , url_(url)
     , worker_name_(worker_name)
     , password_(password)
@@ -214,6 +216,13 @@ void StratumClient::handle_message(const std::string& message) {
                 handle_mining_notify(j["params"]);
             } else if (method == "mining.set_difficulty") {
                 handle_set_difficulty(j["params"]);
+            } else if (method == "mining.set_extranonce") {
+                handle_set_extranonce(j["params"]);
+            } else if (method == "mining.set_goal") { // DRAFT
+                // Optional draft extension; just log presence for now
+                try {
+                    ohmy::log::line("Received mining.set_goal (draft) - ignoring");
+                } catch (...) {}
             } else {
                 // ignore unknown notifications
             }
@@ -232,7 +241,12 @@ void StratumClient::handle_message(const std::string& message) {
                         extranonce1_ = j["result"][1].get<std::string>();
                         extranonce2_size_ = j["result"][2].get<int>();
                         // silent success
-                    } 
+                    }
+                    
+                    // Subscribe to extranonce changes if enabled
+                    if (enable_extranonce_subscribe_) {
+                        extranonce_subscribe();
+                    }
                     
                     // Now authorize
                     authorize();
@@ -244,6 +258,19 @@ void StratumClient::handle_message(const std::string& message) {
                 if (!StratumMessages::is_error(j)) {
                     authorized_ = true;
                     ohmy::log::line("Start mining");
+
+                    // Send optional advisory messages
+                    try {
+                        if (send_capabilities_) {
+                            capabilities(cap_suggested_target_);
+                        }
+                        if (!suggested_target_.empty()) {
+                            suggest_target(suggested_target_);
+                        }
+                        if (have_suggest_diff_) {
+                            suggest_difficulty(suggested_diff_);
+                        }
+                    } catch (...) {}
                 } else {
                     ohmy::log::line("Authorization failed: {}", j["error"].dump());
                 }
@@ -251,6 +278,68 @@ void StratumClient::handle_message(const std::string& message) {
             else {  // Response to share submission
                 bool accepted = !StratumMessages::is_error(j);
                 handle_submit_result(j, accepted);
+            }
+        } else if (j.contains("method") && j.contains("id") && !j["id"].is_null()) {
+            // Handle server->client requests that require a response
+            const std::string method = j["method"].get<std::string>();
+            uint64_t req_id = 0; try { req_id = j["id"].get<uint64_t>(); } catch (...) {}
+
+            if (method == "client.get_version") {
+                // Return client name/version string
+                send_response(req_id, json("ohmy-miner/0.1"));
+            } else if (method == "client.show_message") {
+                try {
+                    if (j.contains("params") && j["params"].is_array() && !j["params"].empty()) {
+                        std::string msg = j["params"][0].get<std::string>();
+                        ohmy::log::line("POOL MESSAGE: {}", msg);
+                    }
+                } catch (...) {}
+                send_response(req_id, json(true));
+            } else if (method == "client.reconnect") {
+                // params: host, port, waittime
+                std::string host; int port = 0; int waittime = 0;
+                try {
+                    if (j.contains("params") && j["params"].is_array()) {
+                        auto p = j["params"];
+                        if (p.size() >= 1 && p[0].is_string()) host = p[0].get<std::string>();
+                        if (p.size() >= 2 && p[1].is_number_integer()) port = p[1].get<int>();
+                        if (p.size() >= 3 && p[2].is_number_integer()) waittime = p[2].get<int>();
+                    }
+                } catch (...) {}
+
+                // Security: only allow reconnect to same host if provided
+                bool accepted = true;
+                if (!host.empty()) {
+                    // Extract current host
+                    const size_t colon = url_.find(':');
+                    std::string cur_host = colon == std::string::npos ? url_ : url_.substr(0, colon);
+                    if (host != cur_host) {
+                        accepted = false;
+                    }
+                }
+
+                send_response(req_id, json(accepted));
+
+                if (accepted) {
+                    // Schedule reconnect if requested
+                    int delay = waittime > 0 ? waittime : 1;
+                    auto timer = std::make_shared<asio::steady_timer>(io_context_, std::chrono::seconds(delay));
+                    timer->async_wait([this, timer, host, port](std::error_code){
+                        try {
+                            disconnect();
+                            // Update URL if port was specified (host ignored for safety unless equal)
+                            if (port > 0) {
+                                size_t colon = url_.find(':');
+                                std::string cur_host = colon == std::string::npos ? url_ : url_.substr(0, colon);
+                                url_ = fmt::format("{}:{}", cur_host, port);
+                            }
+                            connect();
+                        } catch (...) {}
+                    });
+                }
+            } else {
+                // Unknown server request; respond null
+                send_response(req_id, json());
             }
         } else {
             // ignore non-json or unknown
@@ -269,6 +358,15 @@ void StratumClient::authorize() {
     send_message(StratumMessages::authorize(2, worker_name_, password_));
 }
 
+void StratumClient::extranonce_subscribe() {
+    json msg;
+    msg["id"] = nullptr;  // Notification, no response expected
+    msg["method"] = "mining.extranonce.subscribe";
+    msg["params"] = json::array();
+    send_message(msg);
+    ohmy::log::line("Subscribed to extranonce changes");
+}
+
 void StratumClient::suggest_difficulty(double difficulty) {
     json msg;
     msg["id"] = nullptr;  // Notification, no response expected
@@ -276,6 +374,39 @@ void StratumClient::suggest_difficulty(double difficulty) {
     msg["params"] = json::array({difficulty});
     send_message(msg);
     ohmy::log::line("Suggesting difficulty: {:.6f} to pool", difficulty);
+}
+
+void StratumClient::capabilities(const std::string& suggested_target_hex) {
+    json caps = json::object();
+    caps["notify"] = json::object();
+    caps["set_difficulty"] = json::object();
+    if (!suggested_target_hex.empty()) {
+        caps["suggested_target"] = suggested_target_hex;
+    }
+    json msg;
+    msg["id"] = nullptr; // Notification
+    msg["method"] = "mining.capabilities";
+    msg["params"] = json::array({caps});
+    send_message(msg);
+}
+
+void StratumClient::suggest_target(const std::string& full_hex_target) {
+    json msg;
+    msg["id"] = nullptr; // Notification
+    msg["method"] = "mining.suggest_target";
+    msg["params"] = json::array({full_hex_target});
+    send_message(msg);
+}
+
+void StratumClient::get_transactions(const std::string& job_id) {
+    json msg;
+    // This one expects a response; assign a fresh id
+    uint64_t req_id = ++message_id_;
+    msg["id"] = req_id;
+    msg["method"] = "mining.get_transactions";
+    msg["params"] = json::array({job_id});
+    send_message(msg);
+    // NOTE: For now we don't wire a callback; pools rarely require this for header-only mining
 }
 
 void StratumClient::submit_share(const ShareResult& share) {
@@ -390,7 +521,7 @@ void StratumClient::handle_mining_notify(const json& params) {
                     target[31] = static_cast<uint8_t>(coefficient & 0xFF);
                 } else if (exponent <= 32) {
                     int pos = 32 - static_cast<int>(exponent);
-                    if (pos >= 0 && pos + 2 < 32) {  // BUG: should be pos + 2 <= 31
+                    if (pos >= 0 && pos + 2 <= 31) {  // Allow pos=29, writing bytes 29,30,31
                         target[static_cast<size_t>(pos)]     = static_cast<uint8_t>((coefficient >> 16) & 0xFF);
                         target[static_cast<size_t>(pos + 1)] = static_cast<uint8_t>((coefficient >> 8) & 0xFF);
                         target[static_cast<size_t>(pos + 2)] = static_cast<uint8_t>(coefficient & 0xFF);
@@ -471,6 +602,29 @@ void StratumClient::handle_mining_notify(const json& params) {
     }
 }
 
+void StratumClient::send_response(uint64_t id, const json& result) {
+    json resp;
+    resp["jsonrpc"] = "2.0";
+    resp["id"] = id;
+    resp["result"] = result;
+    send_message(resp);
+}
+
+// Advisory configuration
+void StratumClient::set_send_capabilities(bool enable, const std::string& suggested_target_hex) {
+    send_capabilities_ = enable;
+    cap_suggested_target_ = suggested_target_hex;
+}
+
+void StratumClient::set_suggest_target(std::string full_hex_target) {
+    suggested_target_ = std::move(full_hex_target);
+}
+
+void StratumClient::set_suggest_difficulty(double difficulty) {
+    have_suggest_diff_ = true;
+    suggested_diff_ = difficulty;
+}
+
 void StratumClient::handle_set_difficulty(const json& params) {
     try {
         current_difficulty_ = params[0];
@@ -503,6 +657,28 @@ void StratumClient::handle_set_difficulty(const json& params) {
         // Notify the work manager about difficulty change
         if (difficulty_callback_) {
             difficulty_callback_(current_difficulty_);
+        }
+    } catch (const std::exception& e) {
+        // ignore parse error
+    }
+}
+
+void StratumClient::handle_set_extranonce(const json& params) {
+    try {
+        // mining.set_extranonce("extranonce1", extranonce2_size)
+        if (params.is_array() && params.size() >= 2) {
+            std::string new_extranonce1 = params[0].get<std::string>();
+            int new_extranonce2_size = params[1].get<int>();
+            
+            // Update extranonce values
+            extranonce1_ = new_extranonce1;
+            extranonce2_size_ = new_extranonce2_size;
+            
+            ohmy::log::line("Extranonce updated: en1={}, en2_size={}", 
+                          extranonce1_, extranonce2_size_);
+            
+            // Clear valid job IDs as extranonce change invalidates old work
+            valid_job_ids_.clear();
         }
     } catch (const std::exception& e) {
         // ignore parse error

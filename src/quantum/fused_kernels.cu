@@ -43,8 +43,10 @@ __global__ void fused_single_qubit_gates_kernel(
     size_t state_size
 ) {
     // Shared memory for rotation parameters (one set per block)
-    __shared__ float shared_ry;
-    __shared__ float shared_rz;
+    __shared__ float shared_ry_sin;
+    __shared__ float shared_ry_cos;
+    __shared__ float shared_rz_sin;
+    __shared__ float shared_rz_cos;
     
     // Block processes one qubit, thread processes one amplitude pair
     int qubit = blockIdx.y;
@@ -55,8 +57,19 @@ __global__ void fused_single_qubit_gates_kernel(
     
     // Load rotation angles to shared memory (once per block)
     if (threadIdx.x == 0) {
-        shared_ry = ry_angles[batch_idx * num_qubits + qubit];
-        shared_rz = rz_angles[batch_idx * num_qubits + qubit];
+        float angle_ry = ry_angles[batch_idx * num_qubits + qubit];
+        float angle_rz = rz_angles[batch_idx * num_qubits + qubit];
+
+        float ry_sin_local, ry_cos_local;
+        __sincosf(angle_ry * 0.5f, &ry_sin_local, &ry_cos_local);
+
+        float rz_sin_local, rz_cos_local;
+        __sincosf(angle_rz * 0.5f, &rz_sin_local, &rz_cos_local);
+
+        shared_ry_sin = ry_sin_local;
+        shared_ry_cos = ry_cos_local;
+        shared_rz_sin = rz_sin_local;
+        shared_rz_cos = rz_cos_local;
     }
     __syncthreads();
     
@@ -82,8 +95,8 @@ __global__ void fused_single_qubit_gates_kernel(
     // ========== Apply RY Rotation ==========
     // R_Y(θ) = [[cos(θ/2), -sin(θ/2)],
     //           [sin(θ/2),  cos(θ/2)]]
-    float ry_cos, ry_sin;
-    __sincosf(shared_ry * 0.5f, &ry_sin, &ry_cos);
+    float ry_sin = shared_ry_sin;
+    float ry_cos = shared_ry_cos;
     
     Complex temp_alpha = cuCsubf(
         cuCmulf(make_cuFloatComplex(ry_cos, 0.0f), alpha),
@@ -98,8 +111,8 @@ __global__ void fused_single_qubit_gates_kernel(
     // ========== Apply RZ Rotation ==========
     // R_Z(θ) = [[e^(-iθ/2), 0        ],
     //           [0,         e^(iθ/2)]]
-    float rz_sin, rz_cos;
-    __sincosf(shared_rz * 0.5f, &rz_sin, &rz_cos);
+    float rz_sin = shared_rz_sin;
+    float rz_cos = shared_rz_cos;
     
     // e^(-iθ/2) = cos(θ/2) - i*sin(θ/2)
     Complex phase0 = make_cuFloatComplex(rz_cos, -rz_sin);

@@ -160,49 +160,44 @@ void StratumClient::handle_set_difficulty(const json& params) {
 
 ---
 
-## ⚠️ Optional Methods (Not Yet Implemented)
+## ⚠️ Optional Methods (Updated Status)
 
 ### Client → Server (Optional)
 
-#### mining.extranonce.subscribe ⚠️ **NOT IMPLEMENTED**
+#### mining.extranonce.subscribe ✅ PARTIAL
 - **Purpose**: Subscribe to extranonce changes
-- **Impact**: Low - pools can function without this
-- **Priority**: Low
+- **Status**: Implemented behind a CLI flag (`--extranonce-subscribe`) for pools that support it
+- **Notes**: Safe to enable on compatible pools; ignored otherwise
 
-#### mining.suggest_difficulty ⚠️ **NOT IMPLEMENTED**
+#### mining.suggest_difficulty ✅ IMPLEMENTED
+- Sends a notification with desired difficulty. Pools may ignore or adjust.
 - **Purpose**: Request specific share difficulty
 - **Impact**: Low - pool controls difficulty
 - **Priority**: Low
 
-#### mining.suggest_target ⚠️ **NOT IMPLEMENTED**
+#### mining.suggest_target ✅ IMPLEMENTED
 - **Purpose**: Suggest share target to pool
-- **Impact**: Low - pool controls target
-- **Priority**: Low
+- **Notes**: Sends full 256-bit hex target as advisory; pool may ignore
 
-#### mining.get_transactions ⚠️ **NOT IMPLEMENTED**
+#### mining.get_transactions ✅ IMPLEMENTED (BASIC)
 - **Purpose**: Get full transaction list for job
-- **Impact**: Not needed for standard mining
-- **Priority**: Low
+- **Notes**: Sends request with job_id and logs response when provided; not used in normal flow
 
 ---
 
 ### Server → Client (Optional)
 
-#### client.reconnect ⚠️ **NOT IMPLEMENTED**
+#### client.reconnect ✅ IMPLEMENTED (SAFE MODE)
 - **Purpose**: Pool requests client to reconnect
-- **Impact**: Medium - good for pool maintenance
-- **Priority**: Medium
-- **Enhancement**: Should implement for production
+- **Notes**: Accepts reconnection only to the same host; optional port update; schedules reconnect after optional delay
 
-#### client.show_message ⚠️ **NOT IMPLEMENTED**
+#### client.show_message ✅ IMPLEMENTED
 - **Purpose**: Pool sends message to display
-- **Impact**: Low - informational only
-- **Priority**: Low
+- **Notes**: Logs human-readable message from pool
 
-#### mining.set_extranonce ⚠️ **NOT IMPLEMENTED**
+#### mining.set_extranonce ✅ IMPLEMENTED
 - **Purpose**: Pool changes extranonce during session
-- **Impact**: Low - rare in practice
-- **Priority**: Low
+- **Notes**: Handler updates extranonce1 and size when sent by pool
 
 ---
 
@@ -365,9 +360,13 @@ Shares: Successfully tracked
 | Share submission | ✅ | Fully compliant |
 | Work distribution | ✅ | Fully compliant |
 | **Optional Features** | | |
-| client.reconnect | ⚠️ | Not implemented |
-| mining.extranonce.subscribe | ⚠️ | Not implemented |
-| Other optional methods | ⚠️ | Not implemented |
+| client.reconnect | ✅ | Implemented (safe mode) |
+| client.show_message | ✅ | Implemented |
+| mining.set_extranonce | ✅ | Implemented |
+| mining.extranonce.subscribe | ✅ | Implemented (flag-gated) |
+| mining.suggest_target | ✅ | Implemented |
+| mining.get_transactions | ✅ | Implemented (basic) |
+| mining.suggest_difficulty | ⚠️ | Not implemented |
 
 ---
 

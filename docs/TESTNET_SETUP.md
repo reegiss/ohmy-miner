@@ -46,8 +46,8 @@ sudo apt-get install -y \
     qttools5-dev-tools
 
 # Clone Qubitcoin repository
-cd ~/
-git clone https://github.com/qubitcoingold/qubitcoin.git
+cd ~
+git clone https://github.com/super-quantum/qubitcoin.git
 cd qubitcoin
 
 # Build
@@ -63,12 +63,12 @@ qubitcoind --version
 ### Option B: From Pre-built Binaries
 
 ```bash
-# Check official releases at:
-# https://github.com/qubitcoingold/qubitcoin/releases
+# Download pre-compiled binaries (if available)
+# https://github.com/super-quantum/qubitcoin/releases
 
 # Download latest release (example)
 cd ~/
-wget https://github.com/qubitcoingold/qubitcoin/releases/download/vX.X.X/qubitcoin-X.X.X-x86_64-linux-gnu.tar.gz
+wget https://github.com/super-quantum/qubitcoin/releases/download/vX.X.X/qubitcoin-X.X.X-x86_64-linux-gnu.tar.gz
 tar -xzf qubitcoin-X.X.X-x86_64-linux-gnu.tar.gz
 sudo cp qubitcoin-X.X.X/bin/* /usr/local/bin/
 

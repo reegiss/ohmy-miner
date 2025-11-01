@@ -52,13 +52,13 @@ fi
 
 echo ""
 
-# Start daemon
+# Start daemon with explicit datadir and regtest
 echo "Starting Qubitcoin daemon..."
-qubitcoind -daemon 2>/dev/null || echo "(already running)"
+qubitcoind -datadir=~/.qubitcoin -regtest -daemon 2>/dev/null || echo "(already running)"
 sleep 5
 
 # Check if running
-if qubitcoin-cli -regtest getblockchaininfo &>/dev/null; then
+if qubitcoin-cli -datadir=~/.qubitcoin -regtest getblockchaininfo &>/dev/null; then
     echo "✅ Node is running"
 else
     echo "❌ Node failed to start. Check logs:"
@@ -68,28 +68,20 @@ fi
 
 echo ""
 
-# Create wallet if needed
-echo "Checking wallet..."
-qubitcoin-cli -regtest createwallet "mining" 2>/dev/null || echo "(wallet already exists)"
-
-# Get address
-ADDRESS=$(qubitcoin-cli -regtest getnewaddress)
-echo "✅ Mining address: $ADDRESS"
-
-echo ""
-
-# Generate blocks if needed
-BLOCKS=$(qubitcoin-cli -regtest getblockcount)
+# Generate blocks (no wallet needed, generates to default address)
+BLOCKS=$(qubitcoin-cli -datadir=~/.qubitcoin -regtest getblockcount)
 echo "Current block count: $BLOCKS"
 
 if [ "$BLOCKS" -lt 101 ]; then
-    echo "Generating 101 initial blocks (for coinbase maturity)..."
-    qubitcoin-cli -regtest generatetoaddress 101 "$ADDRESS" >/dev/null
+    echo "Generating 101 initial blocks..."
+    # Use generatetoaddress with a fixed regtest address (no wallet needed)
+    ADDRESS="bcrt1qxefsjvd3t2xunvjkrtj0x78qw67hhf75hmwv7s"
+    qubitcoin-cli -datadir=~/.qubitcoin -regtest generatetoaddress 101 "$ADDRESS" >/dev/null
     echo "✅ Generated 101 blocks"
 fi
 
-BALANCE=$(qubitcoin-cli -regtest getbalance)
-echo "✅ Wallet balance: $BALANCE QTC"
+echo "✅ Regtest blockchain initialized"
+ADDRESS="bcrt1qxefsjvd3t2xunvjkrtj0x78qw67hhf75hmwv7s"
 
 echo ""
 echo "=========================================="
@@ -98,17 +90,18 @@ echo "=========================================="
 echo ""
 echo "Mining address: $ADDRESS"
 echo ""
-echo "To mine with OhMyMiner:"
-echo "  cd ~/develop/ohmy-miner"
-echo "  ./build/ohmy-miner --algo qhash --url 127.0.0.1:18332 --user $ADDRESS --pass x"
+echo "To mine with OhMyMiner (requires a Stratum pool/proxy):"
+echo "  1) Start a local Stratum server pointing to this regtest node"
+echo "     (e.g., ckpool or stratum-mining-proxy)."
+echo "  2) Point OhMyMiner to the Stratum endpoint, for example:"
+echo "       ./build/ohmy-miner --algo qhash --url 127.0.0.1:3333 --user $ADDRESS --pass x"
 echo ""
-echo "NOTE: This mines directly to node (no pool)."
-echo "For pool mining, set up ckpool (see docs/TESTNET_SETUP.md - Step 5)"
+echo "See docs/TESTNET_SETUP.md (Stratum section) for setup instructions."
 echo ""
 echo "Monitor node:"
-echo "  qubitcoin-cli -regtest getblockchaininfo"
+echo "  qubitcoin-cli -datadir=~/.qubitcoin -regtest getblockchaininfo"
 echo "  tail -f ~/.qubitcoin/regtest/debug.log"
 echo ""
 echo "Stop node:"
-echo "  qubitcoin-cli -regtest stop"
+echo "  qubitcoin-cli -datadir=~/.qubitcoin -regtest stop"
 echo ""

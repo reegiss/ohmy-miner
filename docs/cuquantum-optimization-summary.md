@@ -1,31 +1,50 @@
-# cuQuantum Batched Backend Optimization - Summary
+# cuQuantum Optimization Summary
 
-## Problem Identified
+Date: 2025-10-31
 
-The cuQuantum batched backend (`custatevec_batched.cu`) was processing 128 nonces in parallel but had **critical performance bottlenecks**:
+This file consolidates cuQuantum (custatevec) optimizations, including the latest single-state backend integration and prior batched backend findings.
 
-### 1. Excessive Synchronization (Primary Bottleneck)
-```cpp
-// BEFORE: Sync after EVERY gate position
-for (each gate in circuit) {           // ~300 gates
-    for (each state in batch) {        // 128 states
-        apply_gate_to_state();
-    }
-    cudaDeviceSynchronize();  // ❌ 300+ syncs per iteration!
-}
-```
+## Current session findings (feat/gate-fusion)
 
-**Impact**: Each `cudaDeviceSynchronize()` blocks the CPU thread and flushes the entire GPU pipeline, killing any potential for parallelism or pipelining.
+- Implemented real cuStateVec gate application in `CuQuantumSimulator`:
+    - RY, RZ via `custatevecApplyPauliRotation` with correct angle mapping (θ' = -θ/2 for e^{i θ' P})
+    - CNOT via controlled-X (single-qubit X with control) using `custatevecApplyMatrix`
+- Measurement: deterministic host-side ⟨Z⟩ reduction to Q15
+- Sanity/perf harness: `tests/test_cuquantum_backend.cpp`
 
-### 2. Sequential State Processing
-- Looped through batch items one-by-one instead of leveraging GPU parallelism
-- custatevec operations queued to null stream sequentially
-- No true concurrent processing despite having 128 allocated states
+### 2025-10-31: Batched correctness fix
 
-### 3. Underutilized Infrastructure
-- Created 4 CUDA streams but didn't use them effectively
-- Stream assignment didn't impact custatevec behavior (uses handle's stream)
-- Memory layout was correct but execution pattern prevented batching benefits
+- Identified a mismatch between single-state and batched results for ⟨Z⟩ on qubits > q0 when using `custatevecApplyMatrixBatched` with `CUSTATEVEC_MATRIX_MAP_TYPE_MATRIX_INDEXED` for per-state RY/RZ.
+- Root cause: misuse/ambiguity in the batched matrix-application API parameters (likely map/indexing semantics). With batch=1, results matched; mismatches appeared only for batch>1.
+- Fix applied: generate per-state 2×2 rotation matrices on device as before, but apply them using the non-batched `custatevecApplyMatrix` in a loop over states (still on the cuStateVec compute stream). This preserves correctness and maintains overlap for H2D angle copies. The fully batched path is kept behind an internal switch for future optimization once parameterization is clarified with NVIDIA docs/samples.
+- Result: `tests/test_cuquantum_batched` now reports `[OK]` for batch=4096 with nq=16; perf is ~0.215 ms/circuit (~4.6 KH/s) including RY/RZ+CNOT.
+
+Next: Revisit `custatevecApplyMatrixBatched` usage (map type, indices pointer location, and matrix layout) to restore the batched rotation speedup without sacrificing correctness.
+
+Added targeted validation for `custatevecApplyPauliRotation` in `tests/test_cuquantum_pauli_rotation.cpp`.
+
+Performance snapshot (16q, 2 layers, 200 runs):
+
+- ApplyMatrix rotations (before): ~0.894 ms/circuit (~1.12 KH/s)
+- PauliRotation enabled: ~0.473 ms/circuit (~2.12 KH/s)
+- Fused custom CUDA baseline: ~0.47–0.48 ms/circuit (~2.13 KH/s)
+
+Key updates:
+
+1. Eliminated per-gate H2D for RY/RZ by enabling `custatevecApplyPauliRotation` (default ON via CMake option)
+2. Fixed angle semantics: cuStateVec applies e^{i θ P}; standard gates are e^{-i θ P/2}. We pass θ' = -θ/2
+3. Reusable workspace and dedicated stream already in place (still used for CNOT ApplyMatrix)
+4. Next: implement true batched path in `custatevec_batched.cu` using native batched APIs (ApplyMatrixBatched, ComputeExpectationBatched)
+
+## Pitfalls to avoid (historical)
+
+These patterns were observed to be inefficient and should be avoided in the batched implementation:
+
+1) Excessive synchronization (e.g., sync after every gate)
+
+2) Sequential per-state processing instead of letting cuStateVec pipeline work on a single handle/stream
+
+3) Misuse of multiple streams without binding them properly to handles (cuStateVec uses the handle’s stream)
 
 ## Research Findings
 
@@ -41,9 +60,9 @@ Investigated NVIDIA cuQuantum SDK examples and found **native batched functions*
 ### Key Insight
 cuQuantum supports batching for **measurements and matrix operations**, but rotation gates must be applied individually. The real bottleneck wasn't lack of batched APIs—it was **synchronization overhead**.
 
-## Solution Implemented
+## Batched optimization plan
 
-### Phase 1: Remove Per-Gate Synchronization ✓
+### Phase 1: Remove per-gate synchronization
 
 **Change**: Moved `cudaDeviceSynchronize()` from inner loop to function end.
 
@@ -58,7 +77,7 @@ for (each gate in circuit) {
 cudaDeviceSynchronize();  // ✓ One sync for all operations
 ```
 
-### Phase 2: Use Native Batched Measurement API ✓
+### Phase 2: Use native batched measurement/expectation APIs
 
 **Before** (sequential measurement):
 ```cpp
@@ -84,9 +103,9 @@ custatevecComputeExpectationBatched(
 );
 ```
 
-## Performance Impact
+## Performance impact (expected for batched path)
 
-### Expected Improvements
+### Expected improvements
 
 | Metric | Before | After (Expected) | Improvement |
 |--------|--------|------------------|-------------|
@@ -108,11 +127,17 @@ custatevecComputeExpectationBatched(
    - Parallel probability calculation across 128 states
    - Single kernel launch instead of 128 sequential calls
 
-## Files Modified
+## Files modified (this phase)
 
-### `src/quantum/custatevec_batched.cu`
-- **`apply_circuits_optimized()`**: Removed per-gate `cudaDeviceSynchronize()`, added single sync at end
-- **`measure_all()`**: Replaced sequential loop with `custatevecComputeExpectationBatched()` API
+### `src/quantum/custatevec_backend.cpp`
+- Switched Y/Z rotations to `custatevecApplyPauliRotation` with θ' = -θ/2 mapping
+- Kept CNOT via ApplyMatrix; reusable workspace and handle-bound stream
+
+### `CMakeLists.txt`
+- Added `OHMY_CUQUANTUM_USE_PAULI_ROTATION` option (default ON) and defined macro when cuQuantum is present
+
+### `tests/test_cuquantum_pauli_rotation.cpp`
+- New diagnostic verifying PauliRotation correctness and showing a perf smoke for 16 qubits
 
 ### Build Status
 ✅ Compiles cleanly with `-Wall -Wextra -Werror`  
@@ -151,38 +176,18 @@ nsys profile --trace=cuda,nvtx -o cuquantum_batch ./build/ohmy-miner ...
 # - Improved memory throughput
 ```
 
-## Future Optimization Paths
+## Next steps (focused)
 
-### If Performance < 1,500 H/s
+1. Implement `custatevecApplyMatrixBatched` for broadcastable gates and per-state matrices when needed
+2. Implement `custatevecComputeExpectationBatched` for ⟨Z⟩ to avoid D2H of full states
+3. Validate determinism and correctness vs. current single-state path
+4. Profile with Nsight Systems/Compute and iterate on occupancy and bandwidth
 
-**Option A: Hybrid Custom + cuQuantum**
-- Use custom batched kernels for RY/RZ/RX gates (90% of operations)
-- Keep custatevec for CNOT gates (complex multi-qubit operations)
-- **Benefit**: Full control over simple gate parallelism
+## Documentation created
 
-**Option B: Multiple custatevec Handles**
-```cpp
-// Create handle per stream for true concurrency
-std::vector<custatevecHandle_t> handles(4);
-for (int i = 0; i < 4; ++i) {
-    custatevecCreate(&handles[i]);
-    custatevecSetStream(handles[i], streams[i]);
-}
-// Distribute 128 states across 4 handles (32 each)
-```
-
-### If Performance > 2,000 H/s
-
-✅ Current approach is effective. Focus on:
-- Circuit-level optimizations (gate fusion)
-- Algorithmic improvements (better nonce search)
-- Multi-GPU support
-
-## Documentation Created
-
-1. **`docs/cuquantum-batching-optimization.md`** (this file) - Detailed technical analysis
-2. **Updated `README.md`** - Performance metrics updated with new expectations
-3. **Updated `.github/copilot-instructions.md`** - Reflects optimized batched backend status
+1. **`docs/cuquantum-optimization-summary.md`** (this file) — cuQuantum single-state status and plan for batching
+2. **Updated `README.md`** — Performance metrics updated with new expectations (pending batching)
+3. **Updated `.github/copilot-instructions.md`** — Reflects current backend status
 
 ## References
 
@@ -195,11 +200,7 @@ for (int i = 0; i < 4; ++i) {
 
 ## Conclusion
 
-**Status**: ✅ Optimization implemented and compiled successfully
-
-**Key Achievement**: Eliminated primary bottleneck (excessive synchronization) using cuQuantum's native batched APIs where available.
-
-**Expected Outcome**: 3-5× hashrate improvement (from ~300-500 H/s to 1,500-2,500 H/s)
+**Status**: ✅ PauliRotation enabled by default; correctness validated; ~1.9× speedup vs previous cuQuantum path. Batched optimization is the next deliverable.
 
 **Next Steps**:
 1. Run live benchmark to measure actual improvement
