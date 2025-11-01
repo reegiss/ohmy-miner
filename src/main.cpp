@@ -265,8 +265,8 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // GPU MODE: Create single batched worker
-        constexpr int BATCH_SIZE = 1000;
+        // GPU MODE: Create single batched worker with optimized batch size
+        constexpr int BATCH_SIZE = 8192;  // Optimized for 12GB GPU with triple-buffering
         constexpr int NUM_QUBITS = 16;
 
         if (!params.no_mining) {

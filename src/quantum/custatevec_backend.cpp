@@ -36,6 +36,7 @@ extern "C" void cuq_generate_ry_mats(const float* angles, cuComplex* outMats, ui
 extern "C" void cuq_generate_rz_mats(const float* angles, cuComplex* outMats, uint32_t nSVs, cudaStream_t stream);
 extern "C" void cuq_fill_sequential_indices(int32_t* indices, uint32_t nSVs, cudaStream_t stream);
 extern "C" void cuq_compute_z_expectations(const cuComplex* batchedSv, uint32_t nSVs, size_t state_size, const int32_t* qubits, int nQ, double* out, cudaStream_t stream);
+extern "C" void cuq_apply_cnot_chain_linear(cuComplex* batchedSv, uint32_t nSVs, size_t state_size, int nq, cudaStream_t stream);
 
 CuQuantumSimulator::CuQuantumSimulator(int max_qubits)
     : max_qubits_(max_qubits) {
@@ -463,7 +464,7 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
     cudaFreeHost(h_angles_pinned[0]);
     cudaFreeHost(h_angles_pinned[1]);
 
-    // Apply CNOTs (broadcast X with control)
+    // Apply CNOTs (broadcast X with control using cuQuantum API - fastest for this workload)
     const auto& ref_cx = circuits[0].cnot_gates();
     cuComplex* d_X = nullptr;
     {
@@ -473,8 +474,8 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
         CUDA_CHECK(cudaMemcpyAsync(d_X, hX, 4 * sizeof(cuComplex), cudaMemcpyHostToDevice, self.stream_));
     }
     for (const auto& cx : ref_cx) {
-    const int32_t targets[1] = { static_cast<int32_t>(cx.target) };
-    const int32_t controls[1] = { static_cast<int32_t>(cx.control) };
+        const int32_t targets[1] = { static_cast<int32_t>(cx.target) };
+        const int32_t controls[1] = { static_cast<int32_t>(cx.control) };
         const int32_t controlVals[1] = { 1 };
         custatevecStatus_t st = custatevecApplyMatrixBatched(
             self.handle_, d_batched, CUDA_C_32F, nq,
@@ -488,13 +489,13 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
             d_ws_batched, ws_batched);
         if (st != CUSTATEVEC_STATUS_SUCCESS) throw std::runtime_error("ApplyMatrixBatched (cnot) failed");
     }
-    
+    cudaFree(d_X);
 
-    // Compute expectations using native cuQuantum batched API
+    // Measure: compute Z-expectations using custom kernel (fastest for batched)
     std::vector<int32_t> h_qubits;
     if (qubits_to_measure.empty()) h_qubits = {0};
     else h_qubits.assign(qubits_to_measure.begin(), qubits_to_measure.end());
-    // Measure: compute Z-expectations using custom kernel (fastest for batched)
+    
     const int nMatrices = static_cast<int>(h_qubits.size());
     int32_t* d_qubits = nullptr;
     double* d_outZ = nullptr;
@@ -521,7 +522,6 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
     // Cleanup
     if (d_qubits) cudaFree(d_qubits);
     if (d_outZ) cudaFree(d_outZ);
-    if (d_X) cudaFree(d_X);
     if (d_ws_batched) cudaFree(d_ws_batched);
     cudaFree(d_indices);
     cudaFree(d_batched);

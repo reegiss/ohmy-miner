@@ -149,6 +149,60 @@ extern "C" void cuq_compute_z_expectations(const cuComplex* batchedSv,
 	z_expectations_kernel<<<grid, block, shmem, stream>>>(batchedSv, nSVs, state_size, qubits, nQ, out);
 }
 
+// Optimized CNOT chain kernel for linear chain pattern: CNOT(0,1), CNOT(1,2), ..., CNOT(n-2,n-1)
+// Processes entire chain for all batched states in a single kernel launch
+__global__ void cnot_chain_linear_kernel(cuComplex* __restrict__ batchedSv,
+										 uint32_t nSVs,
+										 size_t state_size,
+										 int nq) {
+	const uint32_t sv_idx = blockIdx.x;
+	if (sv_idx >= nSVs) return;
+	
+	const size_t base = static_cast<size_t>(sv_idx) * state_size;
+	cuComplex* sv = batchedSv + base;
+	
+	const int tid = threadIdx.x;
+	const int blockN = blockDim.x;
+	
+	// Apply CNOT chain: for each qubit i from 0 to nq-2, apply CNOT(i, i+1)
+	// CNOT(control, target): if control bit is 1, flip target bit
+	for (int ctrl = 0; ctrl < nq - 1; ++ctrl) {
+		const int tgt = ctrl + 1;
+		const unsigned long long ctrl_mask = 1ULL << ctrl;
+		const unsigned long long tgt_mask = 1ULL << tgt;
+		
+		// Each thread processes multiple state indices with strided access for coalescing
+		for (size_t idx = tid; idx < state_size; idx += blockN) {
+			// Check if control qubit is set
+			if (idx & ctrl_mask) {
+				// Control is 1: swap amplitudes with target flipped
+				const size_t paired_idx = idx ^ tgt_mask;
+				
+				// Only process lower index to avoid double-swap
+				if (idx < paired_idx) {
+					cuComplex temp = sv[idx];
+					sv[idx] = sv[paired_idx];
+					sv[paired_idx] = temp;
+				}
+			}
+		}
+		
+		// Synchronize required: next CNOT depends on this one completing
+		__syncthreads();
+	}
+}
+
+extern "C" void cuq_apply_cnot_chain_linear(cuComplex* batchedSv,
+											uint32_t nSVs,
+											size_t state_size,
+											int nq,
+											cudaStream_t stream) {
+	// Use maximum threads per block for better occupancy (was 256, now 512)
+	const uint32_t block = 512u;
+	const dim3 grid(nSVs);
+	cnot_chain_linear_kernel<<<grid, block, 0, stream>>>(batchedSv, nSVs, state_size, nq);
+}
+
 } // namespace quantum
 } // namespace ohmy
 

@@ -19,6 +19,73 @@ namespace ohmy {
 namespace quantum {
 
 /**
+ * Triple-buffered GPU pipeline resources
+ * 
+ * These structures support asynchronous pipelined execution:
+ * - 3 buffer sets allow overlap of H2D (batch N), Compute (batch N-1), D2H (batch N-2)
+ * - Separate streams for each stage enable concurrent execution
+ * - Events manage dependencies between pipeline stages
+ */
+
+/**
+ * GPU device buffers for one batch of quantum circuit simulations
+ */
+struct GpuBatchBuffers {
+    cuComplex* d_batched_states;    // State vectors [nSVs * state_size]
+    float* d_angles_buf[2];         // Double-buffered angles for rotations
+    cuComplex* d_mats_buf[2];       // Double-buffered matrices for rotations
+    int32_t* d_indices;             // Sequential indices for matrix indexing
+    int32_t* d_qubits;              // Qubits to measure
+    double* d_outZ;                 // Measurement results
+    void* d_workspace;              // cuQuantum workspace
+    size_t workspace_size;          // Workspace size in bytes
+    
+    GpuBatchBuffers() = default;
+    
+    // Allocate all buffers for given batch size
+    void allocate(size_t nSVs, size_t state_size, int num_qubits, size_t workspace_sz);
+    
+    // Free all buffers
+    void free();
+};
+
+/**
+ * CUDA streams and events for triple-buffered pipeline
+ */
+struct GpuPipelineStreams {
+    cudaStream_t h2d_stream;        // Host-to-Device transfers
+    cudaStream_t compute_stream;    // Kernel execution
+    cudaStream_t d2h_stream;        // Device-to-Host transfers
+    
+    cudaEvent_t h2d_done;           // H2D completion marker
+    cudaEvent_t compute_done;       // Compute completion marker
+    
+    GpuPipelineStreams() = default;
+    
+    // Create streams and events
+    void create();
+    
+    // Destroy streams and events
+    void destroy();
+};
+
+/**
+ * Host pinned memory buffers for async transfers
+ */
+struct HostPinnedBuffers {
+    float* h_angles_pinned[2];      // Double-buffered angles for H2D
+    double* h_results_pinned;       // Results buffer for D2H
+    
+    HostPinnedBuffers() = default;
+    
+    // Allocate pinned memory
+    void allocate(size_t nSVs, int num_measurements);
+    
+    // Free pinned memory
+    void free();
+};
+
+/**
  * cuQuantum-backed simulator (custatevec)
  *
  * NOTE: Initial skeleton implementation. Gate application will be filled in

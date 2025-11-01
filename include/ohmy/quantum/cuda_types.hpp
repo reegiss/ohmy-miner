@@ -57,13 +57,14 @@ constexpr size_t STATE_SIZE = (1ULL << DEFAULT_NUM_QUBITS);  // 2^16 = 65,536
 /**
  * Batching Configuration
  * 
- * Decision: Support up to 10,000 nonces in parallel
- * - Memory per nonce: 512 KB (float32)
- * - 1000 nonces: 512 MB
- * - 10,000 nonces: 5.12 GB (fits in 6GB GPU)
+ * Decision: Optimize for 12GB GPU with triple-buffered streaming
+ * - Memory per nonce: 512 KB (float32, 16 qubits)
+ * - Workspace overhead: ~2x state size
+ * - 8192 nonces: ~4GB state + ~4GB workspace + 4GB margin
+ * - Triple buffering requires 3× batch buffers for pipeline
  */
-constexpr int DEFAULT_BATCH_SIZE = 1000;
-constexpr int MAX_BATCH_SIZE = 10000;
+constexpr int DEFAULT_BATCH_SIZE = 8192;
+constexpr int MAX_BATCH_SIZE = 12288;  // 12K nonces max (~6GB state + workspace)
 
 /**
  * Memory Layout Helper

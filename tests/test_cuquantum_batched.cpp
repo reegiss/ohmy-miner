@@ -36,7 +36,7 @@ int main() {
         }
         if (batch == 0) batch = 128;
         // Keep batch moderate for CI speed if memory is huge
-        batch = std::min(batch, static_cast<size_t>(4096));
+        batch = std::min(batch, static_cast<size_t>(8192));  // Test with optimized batch size
         CuQuantumSimulator sim(nq);
 
     // Build reference circuit (2 layers as baseline)
