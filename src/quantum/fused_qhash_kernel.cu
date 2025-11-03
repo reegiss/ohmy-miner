@@ -24,6 +24,7 @@
 #include <cuComplex.h>
 #include <stdint.h>
 #include <math.h>
+#include <stdio.h>
 
 #include "fpm_consensus_device.cuh"
 #include "sha256_device.cuh"
@@ -197,7 +198,7 @@ __global__ void fused_qhash_kernel(
     const uint8_t* d_header_template,  // Template: 76 bytes (before nonce)
     uint32_t nTime,                    // Block timestamp
     uint64_t nonce_start,              // Starting nonce
-    uint32_t target_compact,           // Difficulty target (compact form)
+    const uint8_t* d_full_target,      // Difficulty target (32 bytes, big-endian)
     uint32_t* d_result_buffer,         // Output: valid nonces
     uint32_t* d_result_count           // Atomic counter
 ) {
@@ -338,20 +339,71 @@ __global__ void fused_qhash_kernel(
                 ((uint32_t)s_quantum[i * 4 + 3] << 24);
             result_xor[i] = s_h_initial[i] ^ s_quantum_word;
         }
-        
-        // Final SHA256 (TODO: implement or use existing)
-        // For now, use Result_XOR directly for difficulty check
-        
-        // Check difficulty (simple target comparison for now)
-        // TODO: Implement proper compact target expansion and comparison
-        bool passes_difficulty = (result_xor[7] <= target_compact);
-        
-        if (passes_difficulty) {
+
+        // Compute Final Hash: SHA256(H_initial ⊕ S_quantum) over 64 bytes
+        // Prepare message bytes (64 bytes) in big-endian word order for first transform
+        uint8_t msg64[64];
+        // Convert result_xor (8 words) into 32 bytes big-endian
+        for (int i = 0; i < 8; i++) {
+            msg64[i * 4 + 0] = (result_xor[i] >> 24) & 0xFF;
+            msg64[i * 4 + 1] = (result_xor[i] >> 16) & 0xFF;
+            msg64[i * 4 + 2] = (result_xor[i] >> 8) & 0xFF;
+            msg64[i * 4 + 3] = (result_xor[i] >> 0) & 0xFF;
+        }
+        // Append the 32 bytes quantum payload already in s_quantum (little-endian bytes as written above)
+        // The final message is initial_hash(32B big-endian bytes) || s_quantum(32B little-endian bytes),
+        // but qhash spec expects SHA256(initial_hash_bytes + quantum_fixed_point_bytes) as written in that order.
+        // We already used big-endian bytes for initial hash; append s_quantum raw bytes next.
+        for (int i = 0; i < 32; i++) {
+            msg64[32 + i] = s_quantum[i];
+        }
+
+        // SHA256 of 64-byte message requires TWO transforms: data block then padding block
+        uint32_t state[8] = {
+            0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
+            0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19
+        };
+
+        uint32_t block0[16];
+        // Load 64 bytes into first block (big-endian 32-bit words)
+        #pragma unroll
+        for (int i = 0; i < 16; i++) {
+            block0[i] = ((uint32_t)msg64[i * 4 + 0] << 24) |
+                        ((uint32_t)msg64[i * 4 + 1] << 16) |
+                        ((uint32_t)msg64[i * 4 + 2] << 8)  |
+                        ((uint32_t)msg64[i * 4 + 3] << 0);
+        }
+        sha256_transform(state, block0);
+
+        // Padding block for 512-bit message
+        uint32_t block1[16] = {0};
+        block1[0] = 0x80000000;   // '1' bit then zeros
+        block1[15] = 512;         // message length in bits
+        sha256_transform(state, block1);
+
+        // Convert final hash state to big-endian bytes
+        uint8_t final_hash[32];
+        #pragma unroll
+        for (int i = 0; i < 8; i++) {
+            final_hash[i * 4 + 0] = (state[i] >> 24) & 0xFF;
+            final_hash[i * 4 + 1] = (state[i] >> 16) & 0xFF;
+            final_hash[i * 4 + 2] = (state[i] >> 8) & 0xFF;
+            final_hash[i * 4 + 3] = (state[i] >> 0) & 0xFF;
+        }
+
+        // Compare final_hash (big-endian) <= target (32 bytes, big-endian)
+        bool passes = true;
+        for (int i = 0; i < 32; i++) {
+            uint8_t t = d_full_target[i];
+            if (final_hash[i] < t) { passes = true; break; }
+            if (final_hash[i] > t) { passes = false; break; }
+        }
+
+        if (passes) {
             // Atomically claim output slot
             uint32_t result_idx = atomicAdd(d_result_count, 1);
-            
-            // Write winning nonce
-            if (result_idx < 1024) {  // Buffer overflow protection
+            // Write winning nonce with simple overflow guard
+            if (result_idx < 4096) {
                 d_result_buffer[result_idx] = (uint32_t)nonce;
             }
         }
@@ -364,7 +416,7 @@ extern "C" void launch_fused_qhash_kernel(
     const uint8_t* d_header_template,
     uint32_t nTime,
     uint64_t nonce_start,
-    uint32_t target_compact,
+    const uint8_t* d_full_target,
     uint32_t* d_result_buffer,
     uint32_t* d_result_count,
     int batch_size,
@@ -386,7 +438,7 @@ extern "C" void launch_fused_qhash_kernel(
         d_header_template,
         nTime,
         nonce_start,
-        target_compact,
+        d_full_target,
         d_result_buffer,
         d_result_count
     );
@@ -438,6 +490,16 @@ __global__ void fused_qhash_kernel_debug(
         header[77] = (nonce >> 8) & 0xFF;
         header[78] = (nonce >> 16) & 0xFF;
         header[79] = (nonce >> 24) & 0xFF;
+        
+        // DEBUG: Print header
+        if (blockIdx.x == 0) {
+            printf("KERNEL DEBUG: Header (80 bytes):\n");
+            for (int i = 0; i < 80; i++) {
+                printf("%02x ", header[i]);
+                if ((i+1) % 16 == 0) printf("\n");
+            }
+            printf("\n");
+        }
         
         sha256d_80_bytes(header, s_h_initial);
         extract_angles(s_h_initial, nTime, s_angles);

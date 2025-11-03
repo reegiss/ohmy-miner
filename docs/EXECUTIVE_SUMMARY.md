@@ -80,7 +80,7 @@ Build a high-performance GPU miner for Qubitcoin that achieves **36 MH/s on cons
 
 | Phase | Architecture | Expected Hashrate | Speedup |
 |-------|--------------|-------------------|---------|
-| Current (Legacy) | cuStateVec 72 API calls | 3.33 KH/s | Baseline |
+| Current (Legacy) | cuStateVec 72 API calls (LEGACY, REMOVED) | 3.33 KH/s | Baseline |
 | Phase 5 (Integration) | O(1) monolithic kernel | 5-10 KH/s | 2-3× |
 | Phase 6 (Optimization) | Batch 4600 + pinned memory | 20-50 KH/s | 6-15× |
 | Phase 7 (Profiling) | Occupancy tuning + fusion | **36 MH/s** | **10,800×** |
@@ -184,11 +184,12 @@ __device__ __forceinline__ int32_t convert_q15_device(double val) {
 - Without golden vectors, we cannot identify which stage fails
 - Risk: Proceeding to integration would generate "36 MH/s of invalid shares"
 
+
 ### After Validation Passes
 
 **Phase 5: Integration** (Est. 1-2 weeks)
-- Replace cuStateVec calls with `fused_qhash_kernel` in `batched_qhash_worker.cpp`
-- Remove legacy cuQuantum dependencies
+- Remove any remaining legacy code (cuStateVec/cuQuantum)
+- Use only `fused_qhash_kernel` in `batched_qhash_worker.cpp`
 - End-to-end pool test (verify shares accepted)
 - Expected: 5-10 KH/s (2-3× speedup from baseline)
 
@@ -259,21 +260,13 @@ __device__ __forceinline__ int32_t convert_q15_device(double val) {
 
 ---
 
-## Technical Debt
 
-### To Remove After Integration
-1. **Legacy cuStateVec code**:
-   - `src/quantum/custatevec_backend.cpp`
-   - `src/quantum/custatevec_batched.cu`
-   - cuQuantum CMake dependencies
+### Technical Debt
 
-2. **Archived documentation**:
-   - `docs/cuquantum-integration.md`
-   - `docs/cuquantum-optimization-summary.md`
-   - Move to `docs/archive/` for historical context
+All cuStateVec/cuQuantum code and documentation is now legacy/archived. Only the O(1) monolithic kernel is maintained.
 
 ### Build System Cleanup
-- Remove `OHMY_WITH_CUQUANTUM` option
+- Remove any legacy build options (e.g., `OHMY_WITH_CUQUANTUM`)
 - Simplify CUDA test configurations
 - Consolidate device linking settings
 
@@ -324,8 +317,9 @@ __device__ __forceinline__ int32_t convert_q15_device(double val) {
 
 ## Lessons Learned
 
+
 ### Architecture
-- **cuStateVec limitation**: O(2^n) VRAM makes batching impractical
+- **Legacy limitation**: O(2^n) VRAM (cuStateVec/cuQuantum) made batching impractical
 - **WildRig proof**: 36 MH/s on consumer GPU validates O(1) approach
 - **Monolithic kernel**: Eliminates API overhead, enables massive parallelism
 
@@ -352,8 +346,9 @@ __device__ __forceinline__ int32_t convert_q15_device(double val) {
    - Identify and fix any kernel logic errors
    - Iterate until all assertions pass
 
+
 3. **MEDIUM**: Phase 5 integration
-   - Replace cuStateVec in worker
+   - Remove any legacy backend code
    - End-to-end pool test
    - Verify share acceptance
 

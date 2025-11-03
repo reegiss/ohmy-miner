@@ -4,7 +4,7 @@
  */
 
 #include "ohmy/pool/monitor.hpp"
-#include "ohmy/mining/batched_qhash_worker.hpp"
+#include "ohmy/mining/fused_qhash_worker.hpp"
 #include <fmt/format.h>
 #include "ohmy/log.hpp"
 #include <cuda_runtime.h>
@@ -88,12 +88,15 @@ void JobMonitor::print_performance_stats() const {
     auto workers = dispatcher_->get_workers();
     
     for (const auto& worker : workers) {
-        // Only GPU batched worker supported now
-        if (auto batched_worker = std::dynamic_pointer_cast<ohmy::mining::BatchedQHashWorker>(worker)) {
-            auto worker_stats = batched_worker->get_stats();
+        // Prefer fused kernel worker stats if available
+        if (auto fused_worker = std::dynamic_pointer_cast<ohmy::mining::FusedQHashWorker>(worker)) {
+            auto worker_stats = fused_worker->get_stats();
             total_hashrate += worker_stats.hashrate;
             total_hashes += worker_stats.hashes_computed;
+            continue;
         }
+        // (Legacy) Batched worker path retained for compatibility if present
+        // Note: header not included; this clause intentionally omitted to avoid link-time deps
     }
     
     // GPU properties (best-effort)

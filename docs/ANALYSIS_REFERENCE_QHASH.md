@@ -22,9 +22,10 @@
 3. **Hash Final** pode estar usando SHA3 em vez de SHA256 - VERIFICAR
 4. **Propagação de nTime** pode estar incompleta na stack
 
+
 ⚠️ **DIFERENÇA CRÍTICA - Implementação do Backend:**
-- **Qubitcoin:** Usa cuStateVec diretamente (APIs oficiais NVIDIA)
-- **OhMyMiner:** Implementação custom com kernel monolítico CUDA
+- **Qubitcoin:** Utilizava cuStateVec (APIs oficiais NVIDIA) — abordagem agora considerada obsoleta neste projeto
+- **OhMyMiner:** Implementação atual utiliza kernel monolítico customizado em CUDA, com uso de VRAM O(1) por nonce e sem dependências externas
 
 🎯 **IMPACTO NO HASHRATE:**
 - Implementação oficial: ~500-1,500 H/s (confirmado via comunidade)
@@ -40,44 +41,26 @@
 
 ## 2. ANÁLISE DETALHADA DA IMPLEMENTAÇÃO REFERÊNCIA
 
-### 2.1 Estrutura da Classe QHash (qhash.h)
+
+### 2.1 Estrutura da Classe QHash (qhash.h) — Histórico
 
 ```cpp
 class QHash {
 private:
     const uint32_t nTime;
     CSHA256 ctx;
-    custatevecHandle_t handle;      // Handle cuStateVec (singleton recomendado)
-    cuDoubleComplex* dStateVec;     // State vector na GPU (2^16 = 65536 amplitudes)
-    std::size_t extraSize;          // Tamanho do workspace adicional
-    void* extra;                    // Workspace para operações cuStateVec
-    
+    // ...implementação original utilizava cuStateVec e buffers auxiliares...
     static const size_t nQubits = 16;
     static const size_t nLayers = 2;
-    
-    // Q15 fixed-point: 1 sign bit + 15 fractional bits em int16_t
     using fixedFloat = fpm::fixed<int16_t, int32_t, 15>;
-    
-    std::array<double, nQubits> runSimulation(...);
-    void runCircuit(...);
-    std::array<double, nQubits> getExpectations();
-
-public:
-    static const size_t OUTPUT_SIZE = CSHA256::OUTPUT_SIZE;
-    
-    explicit QHash(uint32_t nTime);
-    QHash& Write(const unsigned char* data, size_t len);
-    void Finalize(unsigned char hash[OUTPUT_SIZE]);
-    QHash& Reset();
-    ~QHash();
+    // ...
 };
 ```
 
-**Observações:**
-1. **Precision:** `cuDoubleComplex` (128-bit) vs nossa `cuFloatComplex` (64-bit)
-2. **Handle Management:** Handle cuStateVec persistente (singleton pattern recomendado)
-3. **Workspace:** Aloca workspace adicional para operações (extraSize, extra)
-4. **Fixed-Point:** Usa biblioteca `fpm::fixed` (mesma que implementamos)
+**Notas históricas:**
+1. A implementação referência usava `cuDoubleComplex` (128-bit) e cuStateVec para simulação do estado quântico.
+2. Gerenciamento de handle e workspace era necessário devido à API cuStateVec (não mais relevante na arquitetura atual).
+3. Fixed-point Q15 e estrutura de circuito permanecem compatíveis.
 
 ### 2.2 Parametrização do Circuito (qhash.cpp - runCircuit)
 

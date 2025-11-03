@@ -12,9 +12,10 @@ Complete technical documentation for the OhMyMiner GPU mining project.
 
 Essential reading for understanding current project status:
 
+
 ### **[RESUMO_EXECUTIVO.md](RESUMO_EXECUTIVO.md)** (Português) ⭐
 Complete executive summary of recent work (Oct 28 - Nov 2, 2025):
-- Architecture pivot rationale (cuStateVec → O(1) monolithic kernel)
+- Architecture pivot rationale (legacy backends removed, O(1) monolithic kernel)
 - Phases 2-4B implementation details
 - Quality gates and validation results
 - Current blocker and next steps
@@ -79,12 +80,9 @@ CUDA complex number handling:
 
 ### Build & Setup
 
+
 #### **[INSTALL_CUQUANTUM.md](INSTALL_CUQUANTUM.md)**
-cuQuantum SDK installation guide (legacy):
-- Installation steps
-- Environment configuration
-- Build system integration
-- **Note**: cuStateVec approach superseded, but SDK may be useful for validation
+**[LEGACY/OBSOLETE]** cuQuantum SDK installation guide (for historical reference only)
 
 ### Reference Material
 
@@ -100,15 +98,15 @@ Qubitcoin documentation reference:
 
 **Location**: `archive/`
 
-Documents containing superseded approaches (cuStateVec integration attempts):
 
-- **[archive/cuquantum-integration.md](archive/cuquantum-integration.md)** - Initial cuStateVec backend
-- **[archive/cuquantum-optimization-summary.md](archive/cuquantum-optimization-summary.md)** - Optimization attempts
-- **[archive/cuquantum-batching-optimization.md](archive/cuquantum-batching-optimization.md)** - Batched cuStateVec
-- **[archive/critical-discovery-cuquantum.md](archive/critical-discovery-cuquantum.md)** - O(2^n) bottleneck discovery
-- **[archive/README.md](archive/README.md)** - Archive index with historical context
+Documents containing superseded/legacy approaches (no longer relevant to current codebase):
+- **[archive/cuquantum-integration.md](archive/cuquantum-integration.md)**
+- **[archive/cuquantum-optimization-summary.md](archive/cuquantum-optimization-summary.md)**
+- **[archive/cuquantum-batching-optimization.md](archive/cuquantum-batching-optimization.md)**
+- **[archive/critical-discovery-cuquantum.md](archive/critical-discovery-cuquantum.md)**
+- **[archive/README.md](archive/README.md)**
 
-**Why Archived**: O(2^n) VRAM scaling made approach impractical. Replaced by O(1) monolithic kernel.
+**Why Archived**: All O(2^n) VRAM and cuQuantum/cuStateVec approaches are obsolete. Only the O(1) monolithic kernel is maintained.
 
 ---
 
@@ -150,4 +148,5 @@ This documentation is actively maintained alongside code implementation.
 
 ---
 
-**Note**: This is a GPU-only miner. All CPU mining references in archived documents are obsolete.
+
+**Note**: This is a GPU-only miner. All CPU mining and cuQuantum/cuStateVec references in archived documents are obsolete.

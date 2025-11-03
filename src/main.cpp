@@ -17,7 +17,7 @@
 #include "ohmy/pool/stratum.hpp"
 #include "ohmy/pool/work.hpp"
 #include "ohmy/pool/monitor.hpp"
-#include "ohmy/mining/batched_qhash_worker.hpp"
+#include "ohmy/mining/fused_qhash_worker.hpp"
 #include "ohmy/quantum/simulator.hpp"
 #include "ohmy/quantum/cuda_types.hpp"
 #include "ohmy/quantum/batched_cuda_simulator.hpp"
@@ -73,6 +73,9 @@ struct MinerParams {
     std::string suggest_target_hex;
     double suggest_diff = 0.0;
     bool have_suggest_diff = false;
+    // Fused kernel tuning
+    int batch_override = -1;
+    int block_size_override = -1;
 
     bool validate() const {
         if (algo.empty() || algo != "qhash") {
@@ -109,6 +112,8 @@ MinerParams parse_command_line(int argc, char* argv[]) {
             ("diff", "Static difficulty (optional, e.g., 60K, 1M)", 
              cxxopts::value<std::string>()->default_value(""))
             ("extranonce-subscribe", "Enable mining.extranonce.subscribe for pools with dynamic extranonce")
+                        ("batch", "Override fused kernel batch size (nonces per launch)", cxxopts::value<int>())
+                        ("block-size", "Override fused kernel block size (threads per block)", cxxopts::value<int>())
               ("no-mining", "Connect only; do not start GPU workers")
               ("send-capabilities", "Send mining.capabilities after authorization")
               ("suggest-target", "Send mining.suggest_target with full 256-bit hex target", cxxopts::value<std::string>())
@@ -129,6 +134,8 @@ MinerParams parse_command_line(int argc, char* argv[]) {
         if (result.count("pass")) params.pass = result["pass"].as<std::string>();
         if (result.count("diff")) params.diff = result["diff"].as<std::string>();
         if (result.count("extranonce-subscribe")) params.extranonce_subscribe = true;
+    if (result.count("batch")) params.batch_override = std::max(1, result["batch"].as<int>());
+    if (result.count("block-size")) params.block_size_override = std::max(32, result["block-size"].as<int>());
     if (result.count("no-mining")) params.no_mining = true;
     if (result.count("send-capabilities")) params.send_capabilities = true;
     if (result.count("suggest-target")) params.suggest_target_hex = result["suggest-target"].as<std::string>();
@@ -265,44 +272,38 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // GPU MODE: Create single batched worker. Let the simulator auto-tune batch size.
-        constexpr int NUM_QUBITS = 16;
-        const int desired_batch = 16384; // Target for large GPUs; simulator will tune down if needed
-
+    // GPU MODE: Create single fused-kernel worker (batch size heuristics with optional overrides)
         if (!params.no_mining) {
             try {
-                // Create batched CUDA simulator (auto-tunes internally based on VRAM/workspaces)
-                auto simulator = std::make_unique<ohmy::quantum::cuda::BatchedCudaSimulator>(
-                    NUM_QUBITS, desired_batch, 0);
-                const int tuned_batch = simulator->batch_size();
-                if (tuned_batch != desired_batch) {
-                    ohmy::log::line("Auto-tuned batch size from {} to {} (free VRAM: {})",
-                                    desired_batch, tuned_batch,
-                                    ohmy::quantum::cuda::MemoryRequirements::format_bytes(gpu_info.free_memory));
-                }
+        // Heuristic fused batch size based on free memory (1MB per nonce state)
+                // ~1MB per nonce state (double complex) + overhead
+        size_t free_mb = gpu_info.free_memory / (1024ULL * 1024ULL);
+        int batch_size = 4096; // sensible default
+        if (free_mb > 16384) batch_size = 12288; // very large GPUs
+        else if (free_mb > 12288) batch_size = 8192;
+        else if (free_mb > 8192) batch_size = 6144;
+        if (params.batch_override > 0) batch_size = params.batch_override;
 
-                // Create GPU worker with the simulator's tuned batch size
-                auto worker = std::make_shared<ohmy::mining::BatchedQHashWorker>(
-                    std::move(simulator), 0, tuned_batch);
+        int block_size = ohmy::quantum::cuda::DEFAULT_BLOCK_SIZE;
+        if (params.block_size_override > 0) block_size = params.block_size_override;
 
-                // Set share callback
+        auto worker = std::make_shared<ohmy::mining::FusedQHashWorker>(0, batch_size, block_size);
+
+                // Set share submission callback to Stratum
                 worker->set_share_callback([stratum](const ohmy::pool::ShareResult& share) {
                     stratum->submit_share(share);
                 });
 
-                // Add to dispatcher
                 dispatcher->add_worker(worker);
 
-                // Print threads/intensity/compute units/memory line
-                const int threads = 1; // single GPU worker thread
+                const int threads = 1;
                 const int cu = gpu_info.multiprocessor_count;
-                double free_mb = static_cast<double>(gpu_info.free_memory) / (1024.0 * 1024.0);
-                // Heuristic intensity from batch size (tuned to resemble typical values)
-                int intensity = static_cast<int>(std::round(std::log2(tuned_batch))) + 13;
+                double free_mb_d = static_cast<double>(gpu_info.free_memory) / (1024.0 * 1024.0);
+                int intensity = static_cast<int>(std::round(std::log2(batch_size))) + 13;
                 ohmy::log::line("threads: {}, intensity: {}, cu: {}, mem: {}Mb",
-                                threads, intensity, cu, static_cast<int>(free_mb));
+                                threads, intensity, cu, static_cast<int>(free_mb_d));
             } catch (const std::exception& e) {
-                ohmy::log::line("Failed to initialize GPU worker: {}", e.what());
+                ohmy::log::line("Failed to initialize fused GPU worker: {}", e.what());
                 return 1;
             }
         }

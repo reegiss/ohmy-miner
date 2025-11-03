@@ -1,0 +1,62 @@
+[02:14:19] Initializing GPUs...
+[02:14:19] Using static difficulty: 60K (formatted as: bc1qacadts4usj2tjljwdemfu44a2tq47hch33fc6f=60K.R3G)
+[02:14:19] Job monitor started (stats interval: 10s)
+[02:14:19] Jobs rcvd: 0, processed: 0, pending: 0, workers: 0
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE     0.00 H/s   46C    0%   19W     - 1530  7000     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                     0.00 H/s Power: 19W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[02:14:19] GPU #0: NVIDIA GeForce GTX 1660 SUPER [busID: 8] [arch: sm75] [driver: 13]
+[02:14:19] GPU #0: FusedQHashWorker initialized (batch=4096, block=256)
+Added worker, total workers: 1
+[02:14:19] threads: 1, intensity: 25, cu: 22, mem: 5613Mb
+Job dispatcher started
+[02:14:19] use pool qubitcoin.luckypool.io:8610 217.182.193.158
+Sending request id=1 method=mining.subscribe
+Sending request id=2 method=mining.authorize
+[02:14:19] Stratum set raw difficulty to 1.0000
+[02:14:19] Expected time per share @ 3KH/s: 16.6 days
+[02:14:19] WARNING: Difficulty may be too high for this hashrate!
+Difficulty updated to: 1
+[02:14:19] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.29M
+[02:14:19] block: 62346
+[02:14:19] job target: 0x00000000ffff0000
+Added job to queue: 4508 (queue size: 1)
+Processing job: 4508 (remaining in queue: 0)
+Dispatched job 4508 to 1 workers in parallel
+[02:14:20] Start mining
+[02:14:29] Jobs rcvd: 1, processed: 1, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    1.37 KH/s   52C    0%   64W  0.02 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    1.37 KH/s Power: 64W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[02:14:33] new job from qubitcoin.luckypool.io:8610 diff 1.00/1.29M
+[02:14:33] block: 62346
+[02:14:33] job target: 0x00000000ffff0000
+Added job to queue: 4509 (queue size: 1)
+Processing job: 4509 (remaining in queue: 0)
+[02:14:33] Worker 0 already processing work, ignoring new job
+Dispatched job 4509 to 1 workers in parallel
+[02:14:39] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    1.37 KH/s   53C   54%   65W  0.02 1530  6801     0    0    0
+--------------------------------------------------------------------------------------
+ 10s:                    1.37 KH/s Power: 65W      Accepted:            0
+ 60s:                     n/a MH/s                 Rejected:            0
+ 15m:                     n/a MH/s                  Ignored:            0
+[02:14:49] Jobs rcvd: 2, processed: 2, pending: 0, workers: 1
+-------------------------------------[Statistics]-------------------------------------
+ ID Name                             Hashrate  Temp   Fan   Pwr   Eff CClk  MClk     A    R    I
+--------------------------------------------------------------------------------------
+ #0 NVIDIA GeForce GTX 1660 SUPE    1.37 KH/s   54C   51%   65W  0.02 1530  6801     0    0    0
+------------------------

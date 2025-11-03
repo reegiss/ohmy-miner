@@ -116,6 +116,7 @@ __device__ void sha256_80_bytes(const uint8_t data[80], uint32_t hash[8])
     };
     
     // Block 1: First 64 bytes of header
+    // Read bytes in BIG-ENDIAN order (byte 0 is MSB) as required by SHA256
     uint32_t block1[16];
     #pragma unroll
     for (int i = 0; i < 16; i++) {
@@ -129,7 +130,7 @@ __device__ void sha256_80_bytes(const uint8_t data[80], uint32_t hash[8])
     // Block 2: Last 16 bytes + padding + length
     uint32_t block2[16] = {0};
     
-    // Copy remaining 16 bytes
+    // Copy remaining 16 bytes (also big-endian)
     #pragma unroll
     for (int i = 0; i < 4; i++) {
         block2[i] = ((uint32_t)data[64 + i * 4 + 0] << 24) |
@@ -169,6 +170,7 @@ __device__ void sha256d_80_bytes(const uint8_t data[80], uint32_t hash[8])
     sha256_80_bytes(data, intermediate);
     
     // Convert intermediate hash to bytes for second round
+    // Output from SHA256 is big-endian internally, keep that for second round
     uint8_t intermediate_bytes[32];
     #pragma unroll
     for (int i = 0; i < 8; i++) {
@@ -188,7 +190,7 @@ __device__ void sha256d_80_bytes(const uint8_t data[80], uint32_t hash[8])
     // Single block: 32 bytes + padding + length
     uint32_t block[16] = {0};
     
-    // Copy 32 bytes
+    // Copy 32 bytes (already in big-endian from SHA256 output, load as-is)
     #pragma unroll
     for (int i = 0; i < 8; i++) {
         block[i] = ((uint32_t)intermediate_bytes[i * 4 + 0] << 24) |

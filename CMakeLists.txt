@@ -107,14 +107,18 @@ add_executable(ohmy-miner
   src/pool/stratum_client.cpp
   src/pool/work_manager.cpp
   src/pool/job_monitor.cpp
+  # Crypto utilities
+  src/crypto/difficulty.cpp
   src/quantum/circuit.cpp
   src/quantum/simulator_factory.cpp
-  src/mining/batched_qhash_worker.cpp
+  # Workers
+  src/mining/fused_qhash_worker.cpp
   # Active GPU backend(s) for miner
   src/quantum/cuda_device.cu
   src/quantum/cuda_kernels.cu
   src/quantum/batched_cuda_simulator.cu
   src/quantum/fused_kernels.cu
+  src/quantum/fused_qhash_kernel.cu
 )
 
 # A definição ASIO_STANDALONE ainda é necessária

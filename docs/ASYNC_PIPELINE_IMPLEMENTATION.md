@@ -21,64 +21,32 @@ Implemented true asynchronous triple-buffered pipeline for GPU quantum circuit m
    Circuits           Measure             Submit
 ```
 
-### Stream Utilization
 
-- **H2D Stream**: Asynchronously transfers angle parameters to GPU
-- **Compute Stream**: cuStateVec batched operations (rotations + CNOTs + measurements)
-- **D2H Stream**: Asynchronously copies results to pinned host memory
+### Stream Utilization (Current Monolithic Kernel)
 
-### Key Components
+- **H2D Stream**: Asynchronously transfers all circuit parameters and nonces to GPU
+- **Compute Stream**: Monolithic kernel processes all nonces in a single launch (rotations, CNOTs, measurements)
+- **D2H Stream**: Asynchronously copies final results to pinned host memory
 
-#### 1. CuQuantumSimulator Backend (`src/quantum/custatevec_backend.cpp`)
+### Pipeline Implementation (O(1) VRAM, Monolithic Kernel)
 
-**Persistent Device Pools**:
-```cpp
-cuComplex* d_batched_states_pool_;  // Reusable state vectors (grow-only)
-void* d_ws_batched_pool_;           // cuStateVec workspace (grow-only)
-```
+- All quantum circuit simulation and measurement is performed in a single, persistent CUDA kernel per batch
+- No external backend or cuQuantum/cuStateVec dependency
+- Triple-buffered pipeline: while one batch is being prepared on CPU, another is being computed on GPU, and a third is being collected from GPU to CPU
+- All memory pools and workspace management are handled by the custom kernel and resource manager
+- Results are written directly to pinned host memory for immediate validation and submission
 
-**Async API** (`simulate_and_measure_batched_async`):
-- Uses external `GpuBatchBuffers` and `GpuPipelineStreams`
-- Binds cuStateVec handle to provided compute stream
-- Double-buffers angles on H2D stream
-- Generates rotation matrices on GPU and applies via cuStateVec batched API
-- Computes Z-expectations using custom kernel
-- Copies results to pinned host memory on D2H stream
-- Returns immediately (no sync); caller waits on events
-
-#### 2. BatchedQHashWorker (`src/mining/batched_qhash_worker.cpp`)
-
-**Triple-Buffer Orchestration**:
-```cpp
-// Stage 1: Collect results from batch N-2
-cudaEventSynchronize(d2h_events_[idx_collect]);
-process_batch_results(..., h_pinned_buffers_[idx_collect]->h_results_pinned);
-
-// Stage 2: Launch GPU compute for batch N-1
-simulator_->get_cuquantum_backend()->simulate_and_measure_batched_async(...);
-cudaEventRecord(compute_events_[idx_compute], compute_stream);
-cudaEventRecord(d2h_events_[idx_compute], d2h_stream);
-
-// Stage 3: Prepare batch N on CPU (overlaps with GPU work)
-generate_circuits_batch(work, nonces, nTime);
-```
-
-**Result Processing**:
-- Reads results directly from pinned host buffer (no temporary vectors)
-- Converts `double` Z-expectations to Q15 fixed-point on-the-fly
-- Validates against consensus fork rules (zero-byte counts)
-- Submits valid shares immediately
+**Legacy backends (cuStateVec, cuQuantumSimulator, simulate_and_measure_batched_async, etc.) have been fully removed.**
 
 ## Memory Management
 
 ### VRAM Auto-Tuning
-- Uses ~20% of free VRAM for state vectors
-- Leaves ample headroom for cuQuantum workspaces (avoid OOM)
-- Batch size synchronized between simulator and worker
-- Conservative strategy for mid-range GPUs (6-8GB VRAM)
+- Uses a fixed, minimal O(1) VRAM per nonce (monolithic kernel)
+- Batch size is determined by available VRAM and kernel requirements
+- No external workspace or backend allocation required
 
 ### Persistent Allocations
-- State vector pool: reallocated only when batch size grows
+- All allocations are managed by the custom resource manager and only grow as needed for larger batches
 - Workspace pool: reallocated only when required size increases
 - Eliminates per-batch allocation overhead
 - Reduces jitter and improves consistency

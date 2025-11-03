@@ -41,7 +41,9 @@
 // ===== GOLDEN VALUES (Reference from Qubitcoin client) =====
 // TODO: These need to be populated from actual Qubitcoin reference implementation
 
-// Test input: Simplified block header (first 76 bytes before nonce)
+// Test input: Block header template (first 76 bytes before nonce)
+// Note: Standard Bitcoin block header is 80 bytes total:
+// [version:4] [prev_hash:32] [merkle_root:32] [timestamp:4] [bits:4] [nonce:4]
 const uint8_t GOLDEN_HEADER_TEMPLATE[76] = {
     0x01, 0x00, 0x00, 0x00, // Version
     // Previous block hash (32 bytes of zeros for genesis)
@@ -55,33 +57,56 @@ const uint8_t GOLDEN_HEADER_TEMPLATE[76] = {
     0x7f, 0xc8, 0x1b, 0xc3, 0x88, 0x8a, 0x51, 0x32,
     0x3a, 0x9f, 0xb8, 0xaa, 0x4b, 0x1e, 0x5e, 0x4a,
     // Timestamp (4 bytes)
-    0x29, 0xab, 0x5f, 0x49
+    0x29, 0xab, 0x5f, 0x49,
+    // Bits/Difficulty (4 bytes) - difficulty target compact form
+    0x00, 0x00, 0x00, 0x00
 };
 
 const uint64_t GOLDEN_NONCE = 0x7c2bac1d;  // Bitcoin genesis nonce
 const uint32_t GOLDEN_NTIME = 0x495fab29;  // Timestamp
 
 // Expected SHA256d(header || nonce)
-// NOTE: These are PLACEHOLDER values - must be computed from actual Qubitcoin client
 const uint32_t GOLDEN_H_INITIAL[8] = {
-    0x00000000, 0x00000000, 0x00000000, 0x00000000,
-    0x00000000, 0x00000000, 0x00000000, 0x00000000
+    0xd395e0f8, 0x843f9696, 0x19548991, 0x9b2844e3,
+    0xa1f888f2, 0x6a25bff1, 0x768a8270, 0x57075cf8
 };
 
 // Expected rotation angles (72 total: 2 layers × 16 qubits × 2 axes)
 // NOTE: Must be computed from qhash reference implementation
-[[maybe_unused]] const double GOLDEN_ANGLES[64] = {0}; // Placeholder - skip validation for now
+// Cole aqui os valores extraídos do log do Qubitcoin/simulador CPU:
+[[maybe_unused]] const double GOLDEN_ANGLES[64] = {
+    -1.3744467859455345, -1.7671458676442586, -1.7671458676442586, -2.1598449493429825, -0.58904862254808621, -2.9452431127404308, -2.1598449493429825, -2.1598449493429825,
+    -2.748893571891069, -2.3561944901923448, -1.9634954084936207, -1.9634954084936207, -2.1598449493429825, -0.39269908169872414, -2.748893571891069, -1.9634954084936207,
+    -2.1598449493429825, -2.748893571891069, -0.39269908169872414, -1.1780972450961724, -1.7671458676442586, -2.748893571891069, -1.7671458676442586, -2.5525440310417071,
+    -2.3561944901923448, -1.9634954084936207, -2.1598449493429825, -0.19634954084936207, -2.5525440310417071, -2.5525440310417071, -1.7671458676442586, -0.58904862254808621,
+    -0.98174770424681035, -0.98174770424681035, -0.19634954084936207, -0.19634954084936207, -2.1598449493429825, -2.748893571891069, -0.78539816339744828, -1.1780972450961724,
+    -1.1780972450961724, -2.9452431127404308, -1.7671458676442586, -2.9452431127404308, -0.19634954084936207, -1.3744467859455345, -2.9452431127404308, -1.7671458676442586,
+    -2.9452431127404308, -2.748893571891069, -1.9634954084936207, -0.58904862254808621, -0.19634954084936207, -2.9452431127404308, -1.1780972450961724, -1.5707963267948966,
+    -2.3561944901923448, -0.58904862254808621, -1.1780972450961724, 0.0, -0.19634954084936207, -0.58904862254808621, -1.9634954084936207, -1.9634954084936207
+};
 
 // Expected quantum expectation values <σ_z> before Q15 conversion
 // NOTE: Must be computed from reference quantum simulator
-const double GOLDEN_EXPECTATIONS[16] = {0}; // Placeholder
+const double GOLDEN_EXPECTATIONS[16] = {
+    -0.18522779137251899, -0.15496866259345288, -0.013178218053232408, 0.0077479725460791963,
+    -1.1904201040711937e-17, 1.2490347840211913e-17, 9.5630019745010508e-18, -1.1578940388966286e-17,
+    9.2377413227553995e-18, 0.09234569535247919, 0.57175401711464102, -0.54489510677582265,
+    -0.46825436555673267, -0.50277917229390856, 0.36811841147918128, 0.22546623159542076
+};
 
 // Expected Q15 fixed-point values after conversion
 // NOTE: Should match convert_q15_device(GOLDEN_EXPECTATIONS[i])
-const int32_t GOLDEN_Q15_RESULTS[16] = {0}; // Placeholder
+const int32_t GOLDEN_Q15_RESULTS[16] = {
+    -6070, -5078, -432, 254, 0, 0, 0, 0,
+    0, 3026, 18735, -17855, -15344, -16475, 12063, 7388
+};
 
 // Expected final Result_XOR
-const uint32_t GOLDEN_RESULT_XOR[8] = {0}; // Placeholder
+// Expected final XOR result (after applying Q15 results back to H_INITIAL)
+const uint32_t GOLDEN_RESULT_XOR[8] = {
+    0x2c6a08b2, 0x7bc07abc, 0xe6ab77c1, 0x9b28441d,
+    0xa1f888f2, 0x6a25bff1, 0x768a8270, 0x57075cf8
+};
 
 // ===== DEBUG KERNEL (with intermediate outputs) =====
 
