@@ -31,13 +31,14 @@ namespace quantum {
 #endif
 
 // ===== GpuBatchBuffers Implementation =====
+// MILESTONE 1: Converted to double precision for consensus compliance
 
 void GpuBatchBuffers::allocate(size_t nSVs, size_t state_size, int num_qubits, size_t workspace_sz) {
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_batched_states), nSVs * state_size * sizeof(cuComplex)));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_angles_buf[0]), nSVs * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_angles_buf[1]), nSVs * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_mats_buf[0]), nSVs * 4 * sizeof(cuComplex)));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_mats_buf[1]), nSVs * 4 * sizeof(cuComplex)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_batched_states), nSVs * state_size * sizeof(cuDoubleComplex)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_angles_buf[0]), nSVs * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_angles_buf[1]), nSVs * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_mats_buf[0]), nSVs * 4 * sizeof(cuDoubleComplex)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_mats_buf[1]), nSVs * 4 * sizeof(cuDoubleComplex)));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_indices), nSVs * sizeof(int32_t)));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_qubits), num_qubits * sizeof(int32_t)));
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_outZ), nSVs * num_qubits * sizeof(double)));
@@ -80,10 +81,11 @@ void GpuPipelineStreams::destroy() {
 }
 
 // ===== HostPinnedBuffers Implementation =====
+// MILESTONE 1: Converted to double precision
 
 void HostPinnedBuffers::allocate(size_t nSVs, int num_measurements) {
-    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_angles_pinned[0]), nSVs * sizeof(float)));
-    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_angles_pinned[1]), nSVs * sizeof(float)));
+    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_angles_pinned[0]), nSVs * sizeof(double)));
+    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_angles_pinned[1]), nSVs * sizeof(double)));
     CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_results_pinned), nSVs * num_measurements * sizeof(double)));
 }
 
@@ -96,13 +98,13 @@ void HostPinnedBuffers::free() {
 
 // ===== CuQuantumSimulator Implementation =====
 
-// Host-callable wrappers implemented in custatevec_batched.cu
-extern "C" void cuq_set_basis_zero_for_batch(cuComplex* batchedSv, uint32_t nSVs, size_t state_size, cudaStream_t stream);
-extern "C" void cuq_generate_ry_mats(const float* angles, cuComplex* outMats, uint32_t nSVs, cudaStream_t stream);
-extern "C" void cuq_generate_rz_mats(const float* angles, cuComplex* outMats, uint32_t nSVs, cudaStream_t stream);
+// Host-callable wrappers implemented in custatevec_batched.cu - M1: Updated to double precision
+extern "C" void cuq_set_basis_zero_for_batch(cuDoubleComplex* batchedSv, uint32_t nSVs, size_t state_size, cudaStream_t stream);
+extern "C" void cuq_generate_ry_mats(const double* angles, cuDoubleComplex* outMats, uint32_t nSVs, cudaStream_t stream);
+extern "C" void cuq_generate_rz_mats(const double* angles, cuDoubleComplex* outMats, uint32_t nSVs, cudaStream_t stream);
 extern "C" void cuq_fill_sequential_indices(int32_t* indices, uint32_t nSVs, cudaStream_t stream);
-extern "C" void cuq_compute_z_expectations(const cuComplex* batchedSv, uint32_t nSVs, size_t state_size, const int32_t* qubits, int nQ, double* out, cudaStream_t stream);
-extern "C" void cuq_apply_cnot_chain_linear(cuComplex* batchedSv, uint32_t nSVs, size_t state_size, int nq, cudaStream_t stream);
+extern "C" void cuq_compute_z_expectations(const cuDoubleComplex* batchedSv, uint32_t nSVs, size_t state_size, const int32_t* qubits, int nQ, double* out, cudaStream_t stream);
+extern "C" void cuq_apply_cnot_chain_linear(cuDoubleComplex* batchedSv, uint32_t nSVs, size_t state_size, int nq, cudaStream_t stream);
 
 CuQuantumSimulator::CuQuantumSimulator(int max_qubits)
     : max_qubits_(max_qubits) {
@@ -140,15 +142,15 @@ void CuQuantumSimulator::init_resources() {
         handle_ = nullptr;
         throw std::runtime_error("custatevecSetStream failed");
     }
-    // Allocate device state vector (float32 complex)
-    cerr = cudaMalloc(reinterpret_cast<void**>(&d_state_), state_size_ * sizeof(cuComplex));
+    // Allocate device state vector (double precision complex) - M1
+    cerr = cudaMalloc(reinterpret_cast<void**>(&d_state_), state_size_ * sizeof(cuDoubleComplex));
     if (cerr != cudaSuccess) {
         custatevecDestroy(handle_);
         handle_ = nullptr;
         throw std::runtime_error("cudaMalloc for state vector failed");
     }
-    // Reusable gate matrix buffer (2x2)
-    cerr = cudaMalloc(reinterpret_cast<void**>(&d_gate2x2_), 4 * sizeof(cuComplex));
+    // Reusable gate matrix buffer (2x2) - M1
+    cerr = cudaMalloc(reinterpret_cast<void**>(&d_gate2x2_), 4 * sizeof(cuDoubleComplex));
     if (cerr != cudaSuccess) {
         cudaFree(d_state_);
         d_state_ = nullptr;
@@ -157,27 +159,27 @@ void CuQuantumSimulator::init_resources() {
         throw std::runtime_error("cudaMalloc for gate buffer failed");
     }
 
-    // Query workspace sizes (controls=0 and controls=1) for ApplyMatrix
-    cuComplex h_x[4];
-    h_x[0] = make_cuComplex(0.0f, 0.0f);
-    h_x[1] = make_cuComplex(1.0f, 0.0f);
-    h_x[2] = make_cuComplex(1.0f, 0.0f);
-    h_x[3] = make_cuComplex(0.0f, 0.0f);
+    // Query workspace sizes (controls=0 and controls=1) for ApplyMatrix - M1
+    cuDoubleComplex h_x[4];
+    h_x[0] = make_cuDoubleComplex(0.0, 0.0);
+    h_x[1] = make_cuDoubleComplex(1.0, 0.0);
+    h_x[2] = make_cuDoubleComplex(1.0, 0.0);
+    h_x[3] = make_cuDoubleComplex(0.0, 0.0);
 
     size_t ws0 = 0, ws1 = 0;
     st = custatevecApplyMatrixGetWorkspaceSize(
-        handle_, CUDA_C_32F, max_qubits_,
-        h_x, CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+        handle_, CUDA_C_64F, max_qubits_,
+        h_x, CUDA_C_64F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
         /*nTargets*/ 1, /*nControls*/ 0,
-        CUSTATEVEC_COMPUTE_32F, &ws0);
+        CUSTATEVEC_COMPUTE_64F, &ws0);
     if (st != CUSTATEVEC_STATUS_SUCCESS && st != CUSTATEVEC_STATUS_NOT_SUPPORTED) {
         throw std::runtime_error("ApplyMatrixGetWorkspaceSize failed (nControls=0)");
     }
     st = custatevecApplyMatrixGetWorkspaceSize(
-        handle_, CUDA_C_32F, max_qubits_,
-        h_x, CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+        handle_, CUDA_C_64F, max_qubits_,
+        h_x, CUDA_C_64F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
         /*nTargets*/ 1, /*nControls*/ 1,
-        CUSTATEVEC_COMPUTE_32F, &ws1);
+        CUSTATEVEC_COMPUTE_64F, &ws1);
     if (st != CUSTATEVEC_STATUS_SUCCESS && st != CUSTATEVEC_STATUS_NOT_SUPPORTED) {
         throw std::runtime_error("ApplyMatrixGetWorkspaceSize failed (nControls=1)");
     }
@@ -225,12 +227,12 @@ void CuQuantumSimulator::free_resources() {
 }
 
 void CuQuantumSimulator::reset() {
-    // Set all amplitudes to 0 and amplitude[0] = 1 + 0i
+    // Set all amplitudes to 0 and amplitude[0] = 1 + 0i - M1
     if (!d_state_) return;
-    cudaMemsetAsync(d_state_, 0, state_size_ * sizeof(cuComplex), stream_);
-    cuComplex one;
-    one.x = 1.0f; one.y = 0.0f;
-    cudaMemcpyAsync(d_state_, &one, sizeof(cuComplex), cudaMemcpyHostToDevice, stream_);
+    cudaMemsetAsync(d_state_, 0, state_size_ * sizeof(cuDoubleComplex), stream_);
+    cuDoubleComplex one;
+    one.x = 1.0; one.y = 0.0;
+    cudaMemcpyAsync(d_state_, &one, sizeof(cuDoubleComplex), cudaMemcpyHostToDevice, stream_);
 }
 
 void CuQuantumSimulator::simulate(const QuantumCircuit& circuit) {
@@ -243,13 +245,13 @@ void CuQuantumSimulator::simulate(const QuantumCircuit& circuit) {
         throw std::invalid_argument("Circuit qubit count exceeds CuQuantumSimulator capacity");
     }
 
-    // Helper to apply a single-qubit 2x2 matrix, optionally with one control (CNOT as X with control)
+    // Helper to apply a single-qubit 2x2 matrix, optionally with one control (CNOT as X with control) - M1
     auto apply_single_qubit = [&](int targetQubit,
-                                  const cuComplex m00, const cuComplex m01,
-                                  const cuComplex m10, const cuComplex m11,
+                                  const cuDoubleComplex m00, const cuDoubleComplex m01,
+                                  const cuDoubleComplex m10, const cuDoubleComplex m11,
                                   const int* controls, const int* controlBitValues, int nControls) {
         // Prepare row-major 2x2 matrix on host
-        cuComplex h_mat[4];
+        cuDoubleComplex h_mat[4];
         h_mat[0] = m00; h_mat[1] = m01;
         h_mat[2] = m10; h_mat[3] = m11;
     
@@ -261,7 +263,7 @@ void CuQuantumSimulator::simulate(const QuantumCircuit& circuit) {
         }
 
     
-        // Apply matrix using cuStateVec
+        // Apply matrix using cuStateVec - M1
         const int targets[1] = { targetQubit };
     // Use reusable workspace if available
     size_t workspaceSize = workspace_size_;
@@ -269,12 +271,12 @@ void CuQuantumSimulator::simulate(const QuantumCircuit& circuit) {
 
         auto st = custatevecApplyMatrix(
             handle_,
-            /*sv*/ d_state_, /*svType*/ CUDA_C_32F, /*nIndexBits*/ max_qubits_,
-            /*matrix*/ d_gate2x2_, /*matrixType*/ CUDA_C_32F,
+            /*sv*/ d_state_, /*svType*/ CUDA_C_64F, /*nIndexBits*/ max_qubits_,
+            /*matrix*/ d_gate2x2_, /*matrixType*/ CUDA_C_64F,
             /*layout*/ CUSTATEVEC_MATRIX_LAYOUT_ROW, /*adjoint*/ 0,
             /*targets*/ targets, /*nTargets*/ 1,
             /*controls*/ controls, /*controlBitValues*/ controlBitValues, /*nControls*/ nControls,
-            /*computeType*/ CUSTATEVEC_COMPUTE_32F,
+            /*computeType*/ CUSTATEVEC_COMPUTE_64F,
             /*workspace*/ workspacePtr, /*workspaceSize*/ workspaceSize);
 
         if (st != CUSTATEVEC_STATUS_SUCCESS) {
@@ -296,13 +298,13 @@ void CuQuantumSimulator::simulate(const QuantumCircuit& circuit) {
         if (rot.axis == RotationAxis::Y) {
             const custatevecPauli_t pauliY[1] = { CUSTATEVEC_PAULI_Y };
             st = custatevecApplyPauliRotation(
-                handle_, d_state_, CUDA_C_32F, max_qubits_,
+                handle_, d_state_, CUDA_C_64F, max_qubits_,
                 -0.5 * rot.angle, pauliY, &target, nTargets,
                 controls, controlVals, nControls);
         } else { // RotationAxis::Z
             const custatevecPauli_t pauliZ[1] = { CUSTATEVEC_PAULI_Z };
             st = custatevecApplyPauliRotation(
-                handle_, d_state_, CUDA_C_32F, max_qubits_,
+                handle_, d_state_, CUDA_C_64F, max_qubits_,
                 -0.5 * rot.angle, pauliZ, &target, nTargets,
                 controls, controlVals, nControls);
         }
@@ -310,32 +312,32 @@ void CuQuantumSimulator::simulate(const QuantumCircuit& circuit) {
             throw std::runtime_error("custatevecApplyPauliRotation failed");
         }
 #else
-        // Fallback path: ApplyMatrix (2x2) — known-correct semantics
+        // Fallback path: ApplyMatrix (2x2) — known-correct semantics - M1
         const double half = rot.angle * 0.5;
         if (rot.axis == RotationAxis::Y) {
             // RY(θ)
-            cuComplex m00{static_cast<float>(std::cos(half)), 0.0f};
-            cuComplex m01{static_cast<float>(-std::sin(half)), 0.0f};
-            cuComplex m10{static_cast<float>(std::sin(half)), 0.0f};
-            cuComplex m11{static_cast<float>(std::cos(half)), 0.0f};
+            cuDoubleComplex m00{std::cos(half), 0.0};
+            cuDoubleComplex m01{-std::sin(half), 0.0};
+            cuDoubleComplex m10{std::sin(half), 0.0};
+            cuDoubleComplex m11{std::cos(half), 0.0};
             apply_single_qubit(rot.qubit, m00, m01, m10, m11, nullptr, nullptr, 0);
         } else { // RZ(θ)
             const double c = std::cos(half);
             const double s = std::sin(half);
-            cuComplex m00{static_cast<float>(c), static_cast<float>(-s)}; // c - i s
-            cuComplex m11{static_cast<float>(c), static_cast<float>(+s)}; // c + i s
-            cuComplex zero{0.0f, 0.0f};
+            cuDoubleComplex m00{c, -s}; // c - i s
+            cuDoubleComplex m11{c, +s}; // c + i s
+            cuDoubleComplex zero{0.0, 0.0};
             apply_single_qubit(rot.qubit, m00, zero, zero, m11, nullptr, nullptr, 0);
         }
 #endif
     }
 
-    // Apply CNOT gates: implement as X on target with control on control-qubit
+    // Apply CNOT gates: implement as X on target with control on control-qubit - M1
     for (const auto& cx : circuit.cnot_gates()) {
         // X gate matrix
-        cuComplex zero{0.0f, 0.0f};
-        cuComplex one{1.0f, 0.0f};
-        cuComplex m00 = zero, m01 = one, m10 = one, m11 = zero;
+        cuDoubleComplex zero{0.0, 0.0};
+        cuDoubleComplex one{1.0, 0.0};
+        cuDoubleComplex m00 = zero, m01 = one, m10 = one, m11 = zero;
         const int controls[1] = { cx.control };
         const int ctrlVals[1] = { 1 };
         apply_single_qubit(cx.target, m00, m01, m10, m11, controls, ctrlVals, 1);
@@ -343,9 +345,9 @@ void CuQuantumSimulator::simulate(const QuantumCircuit& circuit) {
 }
 
 std::vector<Q15> CuQuantumSimulator::measure_expectations(const std::vector<int>& qubits) {
-    // Copy state to host and compute ⟨Z⟩ per requested qubit deterministically
-    std::vector<cuComplex> h_state(state_size_);
-    cudaError_t cst = cudaMemcpyAsync(h_state.data(), d_state_, state_size_ * sizeof(cuComplex), cudaMemcpyDeviceToHost, stream_);
+    // Copy state to host and compute ⟨Z⟩ per requested qubit deterministically - M1
+    std::vector<cuDoubleComplex> h_state(state_size_);
+    cudaError_t cst = cudaMemcpyAsync(h_state.data(), d_state_, state_size_ * sizeof(cuDoubleComplex), cudaMemcpyDeviceToHost, stream_);
     if (cst != cudaSuccess) {
         throw std::runtime_error("cudaMemcpyAsync D2H for state vector failed");
     }
@@ -361,9 +363,8 @@ std::vector<Q15> CuQuantumSimulator::measure_expectations(const std::vector<int>
         double ez = 0.0;
         // Sum over all basis states
         for (size_t idx = 0; idx < state_size_; ++idx) {
-            const cuComplex a = h_state[idx];
-            const double pr = static_cast<double>(a.x) * static_cast<double>(a.x)
-                            + static_cast<double>(a.y) * static_cast<double>(a.y);
+            const cuDoubleComplex a = h_state[idx];
+            const double pr = a.x * a.x + a.y * a.y;
             const bool bit = (idx >> q) & 1ULL;
             ez += bit ? -pr : pr;
         }
@@ -415,7 +416,7 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
     const custatevecIndex_t svStride = static_cast<custatevecIndex_t>(stateSize);
 
     // Allocate batched state vectors (contiguous)
-    cuComplex* d_batched = nullptr;
+    cuDoubleComplex* d_batched = nullptr;
     CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_batched), nSVs * stateSize * sizeof(cuComplex)));
     CUDA_CHECK(cudaMemsetAsync(d_batched, 0, nSVs * stateSize * sizeof(cuComplex), self.stream_));
     cuq_set_basis_zero_for_batch(d_batched, static_cast<uint32_t>(nSVs), stateSize, self.stream_);
@@ -441,38 +442,38 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
     CUDA_CHECK(cudaEventCreateWithFlags(&copyReady[0], cudaEventDisableTiming));
     CUDA_CHECK(cudaEventCreateWithFlags(&copyReady[1], cudaEventDisableTiming));
 
-    // Double buffers for angles and mats
-    float* d_angles_buf[2] = { nullptr, nullptr };
-    cuComplex* d_mats_buf[2] = { nullptr, nullptr };
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_angles_buf[0]), nSVs * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_angles_buf[1]), nSVs * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_mats_buf[0]), nSVs * 4 * sizeof(cuComplex)));
-    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_mats_buf[1]), nSVs * 4 * sizeof(cuComplex)));
+    // Double buffers for angles and mats - M1
+    double* d_angles_buf[2] = { nullptr, nullptr };
+    cuDoubleComplex* d_mats_buf[2] = { nullptr, nullptr };
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_angles_buf[0]), nSVs * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_angles_buf[1]), nSVs * sizeof(double)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_mats_buf[0]), nSVs * 4 * sizeof(cuDoubleComplex)));
+    CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_mats_buf[1]), nSVs * 4 * sizeof(cuDoubleComplex)));
 
-    // Pinned host buffers for angles
-    float* h_angles_pinned[2] = { nullptr, nullptr };
-    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_angles_pinned[0]), nSVs * sizeof(float)));
-    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_angles_pinned[1]), nSVs * sizeof(float)));
+    // Pinned host buffers for angles - M1
+    double* h_angles_pinned[2] = { nullptr, nullptr };
+    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_angles_pinned[0]), nSVs * sizeof(double)));
+    CUDA_CHECK(cudaMallocHost(reinterpret_cast<void**>(&h_angles_pinned[1]), nSVs * sizeof(double)));
 
     const size_t nRot = ref_rot.size();
     // Now that buffers exist, query workspace sizes
     {
         custatevecStatus_t st = custatevecApplyMatrixBatchedGetWorkspaceSize(
-            self.handle_, CUDA_C_32F, nq, static_cast<uint32_t>(nSVs), svStride,
+            self.handle_, CUDA_C_64F, nq, static_cast<uint32_t>(nSVs), svStride,
             CUSTATEVEC_MATRIX_MAP_TYPE_MATRIX_INDEXED,
-            d_indices, d_mats_buf[0], CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
-            static_cast<uint32_t>(nSVs), 1, 0, CUSTATEVEC_COMPUTE_32F, &ws_rot);
+            d_indices, d_mats_buf[0], CUDA_C_64F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            static_cast<uint32_t>(nSVs), 1, 0, CUSTATEVEC_COMPUTE_64F, &ws_rot);
         if (st != CUSTATEVEC_STATUS_SUCCESS && st != CUSTATEVEC_STATUS_NOT_SUPPORTED)
             throw std::runtime_error("ApplyMatrixBatchedGetWorkspaceSize (rot) failed");
         // For CNOT: broadcast single X with control
-        cuComplex X[4]; X[0] = make_cuComplex(0.f,0.f); X[1] = make_cuComplex(1.f,0.f);
-        X[2] = make_cuComplex(1.f,0.f); X[3] = make_cuComplex(0.f,0.f);
+        cuDoubleComplex X[4]; X[0] = make_cuDoubleComplex(0.0,0.0); X[1] = make_cuDoubleComplex(1.0,0.0);
+        X[2] = make_cuDoubleComplex(1.0,0.0); X[3] = make_cuDoubleComplex(0.0,0.0);
         size_t ws_tmp = 0;
         st = custatevecApplyMatrixBatchedGetWorkspaceSize(
-            self.handle_, CUDA_C_32F, nq, static_cast<uint32_t>(nSVs), svStride,
+            self.handle_, CUDA_C_64F, nq, static_cast<uint32_t>(nSVs), svStride,
             CUSTATEVEC_MATRIX_MAP_TYPE_BROADCAST,
-            nullptr, X, CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
-            1, 1, 1, CUSTATEVEC_COMPUTE_32F, &ws_tmp);
+            nullptr, X, CUDA_C_64F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            1, 1, 1, CUSTATEVEC_COMPUTE_64F, &ws_tmp);
         if (st != CUSTATEVEC_STATUS_SUCCESS && st != CUSTATEVEC_STATUS_NOT_SUPPORTED)
             throw std::runtime_error("ApplyMatrixBatchedGetWorkspaceSize (cnot) failed");
         ws_cnot = ws_tmp;
@@ -517,14 +518,14 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
         
         const int32_t targets[1] = { static_cast<int32_t>(g0.qubit) };
         custatevecStatus_t st = custatevecApplyMatrixBatched(
-            self.handle_, d_batched, CUDA_C_32F, nq,
+            self.handle_, d_batched, CUDA_C_64F, nq,
             static_cast<uint32_t>(nSVs), svStride,
             CUSTATEVEC_MATRIX_MAP_TYPE_MATRIX_INDEXED,
-            d_indices, d_mats_buf[cur], CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            d_indices, d_mats_buf[cur], CUDA_C_64F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
             static_cast<uint32_t>(nSVs),
             targets, 1,
             nullptr, nullptr, 0,
-            CUSTATEVEC_COMPUTE_32F,
+            CUSTATEVEC_COMPUTE_64F,
             d_ws_batched, ws_batched);
         if (st != CUSTATEVEC_STATUS_SUCCESS) throw std::runtime_error("ApplyMatrixBatched (rot) failed");
     }
@@ -542,10 +543,10 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
 
     // Apply CNOTs (broadcast X with control using cuQuantum API - fastest for this workload)
     const auto& ref_cx = circuits[0].cnot_gates();
-    cuComplex* d_X = nullptr;
+    cuDoubleComplex* d_X = nullptr;
     {
-        cuComplex hX[4]; hX[0] = make_cuComplex(0.f,0.f); hX[1] = make_cuComplex(1.f,0.f);
-        hX[2] = make_cuComplex(1.f,0.f); hX[3] = make_cuComplex(0.f,0.f);
+        cuDoubleComplex hX[4]; hX[0] = make_cuDoubleComplex(0.0,0.0); hX[1] = make_cuDoubleComplex(1.0,0.0);
+        hX[2] = make_cuDoubleComplex(1.0,0.0); hX[3] = make_cuDoubleComplex(0.0,0.0);
         CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_X), 4 * sizeof(cuComplex)));
         CUDA_CHECK(cudaMemcpyAsync(d_X, hX, 4 * sizeof(cuComplex), cudaMemcpyHostToDevice, self.stream_));
     }
@@ -554,14 +555,14 @@ std::vector<std::vector<Q15>> cuquantum_simulate_and_measure_batched(
         const int32_t controls[1] = { static_cast<int32_t>(cx.control) };
         const int32_t controlVals[1] = { 1 };
         custatevecStatus_t st = custatevecApplyMatrixBatched(
-            self.handle_, d_batched, CUDA_C_32F, nq,
+            self.handle_, d_batched, CUDA_C_64F, nq,
             static_cast<uint32_t>(nSVs), svStride,
             CUSTATEVEC_MATRIX_MAP_TYPE_BROADCAST,
-            nullptr, d_X, CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            nullptr, d_X, CUDA_C_64F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
             1,
             targets, 1,
             controls, controlVals, 1,
-            CUSTATEVEC_COMPUTE_32F,
+            CUSTATEVEC_COMPUTE_64F,
             d_ws_batched, ws_batched);
         if (st != CUSTATEVEC_STATUS_SUCCESS) throw std::runtime_error("ApplyMatrixBatched (cnot) failed");
     }
@@ -662,7 +663,7 @@ std::vector<std::vector<Q15>> CuQuantumSimulator::simulate_and_measure_batched_a
         CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_batched_states_pool_), needed_bytes));
         d_batched_states_bytes_ = needed_bytes;
     }
-    cuComplex* d_batched = d_batched_states_pool_;
+    cuDoubleComplex* d_batched = d_batched_states_pool_;
     CUDA_CHECK(cudaMemsetAsync(d_batched, 0, needed_bytes, streams.compute_stream));
     cuq_set_basis_zero_for_batch(d_batched, static_cast<uint32_t>(nSVs), stateSize, streams.compute_stream);
     CUDA_CHECK(cudaGetLastError());
@@ -679,21 +680,21 @@ std::vector<std::vector<Q15>> CuQuantumSimulator::simulate_and_measure_batched_a
     {
         // Query using placeholders; matrices pointer not dereferenced during size query
         custatevecStatus_t st = custatevecApplyMatrixBatchedGetWorkspaceSize(
-            handle_, CUDA_C_32F, nq, static_cast<uint32_t>(nSVs), svStride,
+            handle_, CUDA_C_64F, nq, static_cast<uint32_t>(nSVs), svStride,
             CUSTATEVEC_MATRIX_MAP_TYPE_MATRIX_INDEXED,
-            buffers.d_indices, /*d_mats*/ buffers.d_mats_buf[0], CUDA_C_32F,
+            buffers.d_indices, /*d_mats*/ buffers.d_mats_buf[0], CUDA_C_64F,
             CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
-            static_cast<uint32_t>(nSVs), 1, 0, CUSTATEVEC_COMPUTE_32F, &ws_rot);
+            static_cast<uint32_t>(nSVs), 1, 0, CUSTATEVEC_COMPUTE_64F, &ws_rot);
         if (st != CUSTATEVEC_STATUS_SUCCESS && st != CUSTATEVEC_STATUS_NOT_SUPPORTED)
             throw std::runtime_error("ApplyMatrixBatchedGetWorkspaceSize (rot) failed");
-        cuComplex X[4]; X[0] = make_cuComplex(0.f,0.f); X[1] = make_cuComplex(1.f,0.f);
-        X[2] = make_cuComplex(1.f,0.f); X[3] = make_cuComplex(0.f,0.f);
+        cuDoubleComplex X[4]; X[0] = make_cuDoubleComplex(0.0,0.0); X[1] = make_cuDoubleComplex(1.0,0.0);
+        X[2] = make_cuDoubleComplex(1.0,0.0); X[3] = make_cuDoubleComplex(0.0,0.0);
         size_t ws_tmp = 0;
         st = custatevecApplyMatrixBatchedGetWorkspaceSize(
-            handle_, CUDA_C_32F, nq, static_cast<uint32_t>(nSVs), svStride,
+            handle_, CUDA_C_64F, nq, static_cast<uint32_t>(nSVs), svStride,
             CUSTATEVEC_MATRIX_MAP_TYPE_BROADCAST,
-            nullptr, X, CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
-            1, 1, 1, CUSTATEVEC_COMPUTE_32F, &ws_tmp);
+            nullptr, X, CUDA_C_64F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            1, 1, 1, CUSTATEVEC_COMPUTE_64F, &ws_tmp);
         if (st != CUSTATEVEC_STATUS_SUCCESS && st != CUSTATEVEC_STATUS_NOT_SUPPORTED)
             throw std::runtime_error("ApplyMatrixBatchedGetWorkspaceSize (cnot) failed");
         ws_cnot = ws_tmp;
@@ -763,24 +764,24 @@ std::vector<std::vector<Q15>> CuQuantumSimulator::simulate_and_measure_batched_a
 
         const int32_t targets[1] = { static_cast<int32_t>(g0.qubit) };
         custatevecStatus_t st = custatevecApplyMatrixBatched(
-            handle_, d_batched, CUDA_C_32F, nq,
+            handle_, d_batched, CUDA_C_64F, nq,
             static_cast<uint32_t>(nSVs), svStride,
             CUSTATEVEC_MATRIX_MAP_TYPE_MATRIX_INDEXED,
-            buffers.d_indices, buffers.d_mats_buf[cur], CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            buffers.d_indices, buffers.d_mats_buf[cur], CUDA_C_64F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
             static_cast<uint32_t>(nSVs),
             targets, 1,
             nullptr, nullptr, 0,
-            CUSTATEVEC_COMPUTE_32F,
+            CUSTATEVEC_COMPUTE_64F,
             d_ws_batched, ws_batched);
         if (st != CUSTATEVEC_STATUS_SUCCESS) throw std::runtime_error("ApplyMatrixBatched (rot, async) failed");
     }
 
     // Apply CNOTs: broadcast X with control
     const auto& ref_cx = circuits[0].cnot_gates();
-    cuComplex* d_X = nullptr;
+    cuDoubleComplex* d_X = nullptr;
     {
-        cuComplex hX[4]; hX[0] = make_cuComplex(0.f,0.f); hX[1] = make_cuComplex(1.f,0.f);
-        hX[2] = make_cuComplex(1.f,0.f); hX[3] = make_cuComplex(0.f,0.f);
+        cuDoubleComplex hX[4]; hX[0] = make_cuDoubleComplex(0.0,0.0); hX[1] = make_cuDoubleComplex(1.0,0.0);
+        hX[2] = make_cuDoubleComplex(1.0,0.0); hX[3] = make_cuDoubleComplex(0.0,0.0);
         CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_X), 4 * sizeof(cuComplex)));
         CUDA_CHECK(cudaMemcpyAsync(d_X, hX, 4 * sizeof(cuComplex), cudaMemcpyHostToDevice, streams.compute_stream));
     }
@@ -789,14 +790,14 @@ std::vector<std::vector<Q15>> CuQuantumSimulator::simulate_and_measure_batched_a
         const int32_t controls[1] = { static_cast<int32_t>(cx.control) };
         const int32_t controlVals[1] = { 1 };
         custatevecStatus_t st = custatevecApplyMatrixBatched(
-            handle_, d_batched, CUDA_C_32F, nq,
+            handle_, d_batched, CUDA_C_64F, nq,
             static_cast<uint32_t>(nSVs), svStride,
             CUSTATEVEC_MATRIX_MAP_TYPE_BROADCAST,
-            nullptr, d_X, CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            nullptr, d_X, CUDA_C_64F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
             1,
             targets, 1,
             controls, controlVals, 1,
-            CUSTATEVEC_COMPUTE_32F,
+            CUSTATEVEC_COMPUTE_64F,
             d_ws_batched, ws_batched);
         if (st != CUSTATEVEC_STATUS_SUCCESS) throw std::runtime_error("ApplyMatrixBatched (cnot, async) failed");
     }

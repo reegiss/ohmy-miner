@@ -29,16 +29,17 @@ namespace quantum {
 
 /**
  * GPU device buffers for one batch of quantum circuit simulations
+ * MILESTONE 1: Converted to double precision for qPoW consensus compliance
  */
 struct GpuBatchBuffers {
-    cuComplex* d_batched_states;    // State vectors [nSVs * state_size]
-    float* d_angles_buf[2];         // Double-buffered angles for rotations
-    cuComplex* d_mats_buf[2];       // Double-buffered matrices for rotations
-    int32_t* d_indices;             // Sequential indices for matrix indexing
-    int32_t* d_qubits;              // Qubits to measure
-    double* d_outZ;                 // Measurement results
-    void* d_workspace;              // cuQuantum workspace
-    size_t workspace_size;          // Workspace size in bytes
+    cuDoubleComplex* d_batched_states;  // State vectors [nSVs * state_size] - DOUBLE PRECISION
+    double* d_angles_buf[2];            // Double-buffered angles for rotations - DOUBLE PRECISION
+    cuDoubleComplex* d_mats_buf[2];     // Double-buffered matrices for rotations - DOUBLE PRECISION
+    int32_t* d_indices;                 // Sequential indices for matrix indexing
+    int32_t* d_qubits;                  // Qubits to measure
+    double* d_outZ;                     // Measurement results (already double)
+    void* d_workspace;                  // cuQuantum workspace
+    size_t workspace_size;              // Workspace size in bytes
     
     GpuBatchBuffers() = default;
     
@@ -71,10 +72,11 @@ struct GpuPipelineStreams {
 
 /**
  * Host pinned memory buffers for async transfers
+ * MILESTONE 1: Converted to double precision
  */
 struct HostPinnedBuffers {
-    float* h_angles_pinned[2];      // Double-buffered angles for H2D
-    double* h_results_pinned;       // Results buffer for D2H
+    double* h_angles_pinned[2];      // Double-buffered angles for H2D - DOUBLE PRECISION
+    double* h_results_pinned;        // Results buffer for D2H (already double)
     
     HostPinnedBuffers() = default;
     
@@ -138,16 +140,16 @@ private:
 
 private:
     int max_qubits_;
-    size_t state_size_{};           // number of amplitudes = 2^max_qubits
-    custatevecHandle_t handle_{};   // cuQuantum handle
-    cuComplex* d_state_{};          // device state vector (float32 complex)
-    cuComplex* d_gate2x2_{};        // reusable device buffer for 2x2 gate matrices
-    void* d_workspace_{};           // reusable cuStateVec workspace
-    size_t workspace_size_{};       // workspace size in bytes
-    cudaStream_t stream_{};         // dedicated compute stream for cuStateVec operations
+    size_t state_size_{};              // number of amplitudes = 2^max_qubits
+    custatevecHandle_t handle_{};      // cuQuantum handle
+    cuDoubleComplex* d_state_{};       // device state vector (double precision complex) - M1
+    cuDoubleComplex* d_gate2x2_{};     // reusable device buffer for 2x2 gate matrices - M1
+    void* d_workspace_{};              // reusable cuStateVec workspace
+    size_t workspace_size_{};          // workspace size in bytes
+    cudaStream_t stream_{};            // dedicated compute stream for cuStateVec operations
 
     // Persistent pools for batched async path (avoid per-call alloc/free)
-    cuComplex* d_batched_states_pool_{}; // [nSVs * state_size]
+    cuDoubleComplex* d_batched_states_pool_{}; // [nSVs * state_size] - M1
     size_t d_batched_states_bytes_{0};
     void* d_ws_batched_pool_{};
     size_t ws_batched_pool_size_{0};

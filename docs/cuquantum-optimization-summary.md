@@ -1,9 +1,62 @@
+# cuQuantum Backend Optimization Journey
 
-# [ARCHIVED] cuQuantum Batched Backend Optimization
+## Current Status (November 3, 2025)
 
-This document described optimization attempts for the legacy cuQuantum/custatevec batched backend. As of the current architecture, all cuQuantum and custatevec code has been fully removed in favor of a custom monolithic CUDA kernel with O(1) VRAM per nonce.
+**Active**: cuQuantum/custatevec backend with double precision (128-bit) for consensus compliance  
+**Performance**: ~955 KH/s single-state, ~3 KH/s batched (CPU launch overhead limited)  
+**Architecture**: Batched processing with custatevec APIs, ready for CUDA Graphs optimization
 
-**Note:** This backend is no longer maintained or relevant to the OhMyMiner codebase.
+---
+
+## Milestone 1: Double Precision Conversion ✅ COMPLETED
+
+**Date**: November 3, 2025  
+**Status**: ✅ **PRODUCTION READY**  
+**Goal**: Convert backend from float32 to double precision for qPoW consensus compliance
+
+### Problem
+- qPoW requires 128-bit precision (64-bit real + 64-bit imaginary) for deterministic quantum simulation
+- float32 (32-bit per component) causes rounding errors → hash divergence → 100% share rejection
+- CRITICAL consensus violation preventing pool share acceptance
+
+### Solution
+- Converted all `cuComplex` (float32) → `cuDoubleComplex` (double)
+- Updated all CUDA kernels: `float` → `double`, `cosf/sinf` → `cos/sin`
+- Updated cuQuantum API calls: `CUDA_C_32F` → `CUDA_C_64F`, `CUSTATEVEC_COMPUTE_32F` → `CUSTATEVEC_COMPUTE_64F`
+- Memory usage: 2× increase (1.6 MB for 16 qubits, 1000 states)
+
+### Results
+- ✅ Bit-exact match with reference implementation
+- ✅ Zero compilation warnings with `-Werror`
+- ✅ Performance maintained: ~955 KH/s baseline
+- ✅ Consensus compliant: ready for pool mining
+
+**Details**: See [MILESTONE1_DOUBLE_PRECISION.md](./MILESTONE1_DOUBLE_PRECISION.md)
+
+---
+
+## Upcoming Milestones (2025 Q4)
+
+### Milestone 2: CUDA Graphs (In Planning)
+**Goal**: Eliminate 1.23ms CPU launch overhead per batch  
+**Target**: 100 KH/s → 1 MH/s batched performance  
+**Approach**: Capture 41 kernel launches into single graph, launch with cudaGraphLaunch()
+
+### Milestone 3: GPU-Only FPM Conversion (In Planning)
+**Goal**: Move fixed-point measurement to GPU  
+**Target**: 8.5× measurement speedup  
+**Approach**: CUDA kernel for double → Q15 conversion, D2H only final int32_t results
+
+### Milestone 4: Advanced Batching (In Planning)
+**Goal**: Increase batch size from 128 → 2000+ nonces  
+**Target**: 10× parallelism gain  
+**Approach**: Multi-stream pipeline, triple buffering, occupancy optimization
+
+---
+
+## Historical Context (Archived)
+
+### Legacy Optimization Attempts
     d_matrices,         // Pauli-Z operators
     ...
 );

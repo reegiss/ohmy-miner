@@ -1,6 +1,8 @@
 /*
  * Copyright (C) 2025 Regis Araujo Melo
  * This program is free software under the GPL-3.0 license. See LICENSE file.
+ *
+ * MILESTONE 1: Converted to double precision (cuDoubleComplex) for qPoW consensus compliance
  */
 
 #ifdef OHMY_WITH_CUQUANTUM
@@ -15,45 +17,45 @@ namespace quantum {
 
 // --- Device helpers ---
 
-__device__ __forceinline__ cuComplex make_cplx(float x, float y) {
-	cuComplex z; z.x = x; z.y = y; return z;
+__device__ __forceinline__ cuDoubleComplex make_cplx(double x, double y) {
+	cuDoubleComplex z; z.x = x; z.y = y; return z;
 }
 
 // Set amplitude[0] = 1 + 0i for each state; assumes memory is zeroed
-__global__ void set_basis_zero_for_batch(cuComplex* batchedSv, uint32_t nSVs, size_t state_size) {
+__global__ void set_basis_zero_for_batch(cuDoubleComplex* batchedSv, uint32_t nSVs, size_t state_size) {
 	const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i >= nSVs) return;
-	batchedSv[i * state_size + 0] = make_cplx(1.0f, 0.0f);
+	batchedSv[i * state_size + 0] = make_cplx(1.0, 0.0);
 }
 
 // Generate per-state 2x2 RY(θ) matrices in row-major into outMats [nSVs x 4]
-__global__ void generate_ry_mats_kernel(const float* angles, cuComplex* outMats, uint32_t nSVs) {
+__global__ void generate_ry_mats_kernel(const double* angles, cuDoubleComplex* outMats, uint32_t nSVs) {
 	const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i >= nSVs) return;
 	// Align semantics with single-state PauliRotation path (theta' = -theta/2)
-	const float half = -0.5f * angles[i];
-	const float c = cosf(half);
-	const float s = sinf(half);
-	cuComplex m00 = make_cplx(c, 0.0f);
-	cuComplex m01 = make_cplx(-s, 0.0f);
-	cuComplex m10 = make_cplx(s, 0.0f);
-	cuComplex m11 = make_cplx(c, 0.0f);
-	cuComplex* M = outMats + static_cast<size_t>(i) * 4;
+	const double half = -0.5 * angles[i];
+	const double c = cos(half);
+	const double s = sin(half);
+	cuDoubleComplex m00 = make_cplx(c, 0.0);
+	cuDoubleComplex m01 = make_cplx(-s, 0.0);
+	cuDoubleComplex m10 = make_cplx(s, 0.0);
+	cuDoubleComplex m11 = make_cplx(c, 0.0);
+	cuDoubleComplex* M = outMats + static_cast<size_t>(i) * 4;
 	M[0] = m00; M[1] = m01; M[2] = m10; M[3] = m11;
 }
 
 // Generate per-state 2x2 RZ(θ) matrices in row-major into outMats [nSVs x 4]
-__global__ void generate_rz_mats_kernel(const float* angles, cuComplex* outMats, uint32_t nSVs) {
+__global__ void generate_rz_mats_kernel(const double* angles, cuDoubleComplex* outMats, uint32_t nSVs) {
 	const uint32_t i = blockIdx.x * blockDim.x + threadIdx.x;
 	if (i >= nSVs) return;
 	// Align semantics with single-state PauliRotation path (theta' = -theta/2)
-	const float half = -0.5f * angles[i];
-	const float c = cosf(half);
-	const float s = sinf(half);
-	cuComplex m00 = make_cplx(c, -s); // c - i s
-	cuComplex m11 = make_cplx(c,  s); // c + i s
-	cuComplex zero = make_cplx(0.0f, 0.0f);
-	cuComplex* M = outMats + static_cast<size_t>(i) * 4;
+	const double half = -0.5 * angles[i];
+	const double c = cos(half);
+	const double s = sin(half);
+	cuDoubleComplex m00 = make_cplx(c, -s); // c - i s
+	cuDoubleComplex m11 = make_cplx(c,  s); // c + i s
+	cuDoubleComplex zero = make_cplx(0.0, 0.0);
+	cuDoubleComplex* M = outMats + static_cast<size_t>(i) * 4;
 	M[0] = m00; M[1] = zero; M[2] = zero; M[3] = m11;
 }
 
@@ -65,7 +67,7 @@ __global__ void fill_indices_kernel(int32_t* indices, uint32_t nSVs) {
 }
 
 // Compute Z expectations per state for a list of qubits. One block per state.
-__global__ void z_expectations_kernel(const cuComplex* __restrict__ batchedSv,
+__global__ void z_expectations_kernel(const cuDoubleComplex* __restrict__ batchedSv,
 									  uint32_t nSVs,
 									  size_t state_size,
 									  const int32_t* __restrict__ qubits,
@@ -83,8 +85,8 @@ __global__ void z_expectations_kernel(const cuComplex* __restrict__ batchedSv,
 	for (int m = 0; m < 16; ++m) accMax[m] = 0.0;
 
 	for (size_t idx = tid; idx < state_size; idx += blockN) {
-		cuComplex a = batchedSv[base + idx];
-		double pr = static_cast<double>(a.x) * static_cast<double>(a.x) + static_cast<double>(a.y) * static_cast<double>(a.y);
+		cuDoubleComplex a = batchedSv[base + idx];
+		double pr = a.x * a.x + a.y * a.y;
 		#pragma unroll 4
 		for (int m = 0; m < nQ; ++m) {
 			int qb = qubits[m];
@@ -112,19 +114,19 @@ __global__ void z_expectations_kernel(const cuComplex* __restrict__ batchedSv,
 
 // --- Host wrappers (callable from C++) ---
 
-extern "C" void cuq_set_basis_zero_for_batch(cuComplex* batchedSv, uint32_t nSVs, size_t state_size, cudaStream_t stream) {
+extern "C" void cuq_set_basis_zero_for_batch(cuDoubleComplex* batchedSv, uint32_t nSVs, size_t state_size, cudaStream_t stream) {
 	const uint32_t block = 256u;
 	const uint32_t grid = (nSVs + block - 1u) / block;
 	set_basis_zero_for_batch<<<grid, block, 0, stream>>>(batchedSv, nSVs, state_size);
 }
 
-extern "C" void cuq_generate_ry_mats(const float* angles, cuComplex* outMats, uint32_t nSVs, cudaStream_t stream) {
+extern "C" void cuq_generate_ry_mats(const double* angles, cuDoubleComplex* outMats, uint32_t nSVs, cudaStream_t stream) {
 	const uint32_t block = 256u;
 	const uint32_t grid = (nSVs + block - 1u) / block;
 	generate_ry_mats_kernel<<<grid, block, 0, stream>>>(angles, outMats, nSVs);
 }
 
-extern "C" void cuq_generate_rz_mats(const float* angles, cuComplex* outMats, uint32_t nSVs, cudaStream_t stream) {
+extern "C" void cuq_generate_rz_mats(const double* angles, cuDoubleComplex* outMats, uint32_t nSVs, cudaStream_t stream) {
 	const uint32_t block = 256u;
 	const uint32_t grid = (nSVs + block - 1u) / block;
 	generate_rz_mats_kernel<<<grid, block, 0, stream>>>(angles, outMats, nSVs);
@@ -136,7 +138,7 @@ extern "C" void cuq_fill_sequential_indices(int32_t* indices, uint32_t nSVs, cud
 	fill_indices_kernel<<<grid, block, 0, stream>>>(indices, nSVs);
 }
 
-extern "C" void cuq_compute_z_expectations(const cuComplex* batchedSv,
+extern "C" void cuq_compute_z_expectations(const cuDoubleComplex* batchedSv,
 											uint32_t nSVs,
 											size_t state_size,
 											const int32_t* qubits,
@@ -151,7 +153,7 @@ extern "C" void cuq_compute_z_expectations(const cuComplex* batchedSv,
 
 // Optimized CNOT chain kernel for linear chain pattern: CNOT(0,1), CNOT(1,2), ..., CNOT(n-2,n-1)
 // Processes entire chain for all batched states in a single kernel launch
-__global__ void cnot_chain_linear_kernel(cuComplex* __restrict__ batchedSv,
+__global__ void cnot_chain_linear_kernel(cuDoubleComplex* __restrict__ batchedSv,
 										 uint32_t nSVs,
 										 size_t state_size,
 										 int nq) {
@@ -159,7 +161,7 @@ __global__ void cnot_chain_linear_kernel(cuComplex* __restrict__ batchedSv,
 	if (sv_idx >= nSVs) return;
 	
 	const size_t base = static_cast<size_t>(sv_idx) * state_size;
-	cuComplex* sv = batchedSv + base;
+	cuDoubleComplex* sv = batchedSv + base;
 	
 	const int tid = threadIdx.x;
 	const int blockN = blockDim.x;
@@ -180,7 +182,7 @@ __global__ void cnot_chain_linear_kernel(cuComplex* __restrict__ batchedSv,
 				
 				// Only process lower index to avoid double-swap
 				if (idx < paired_idx) {
-					cuComplex temp = sv[idx];
+					cuDoubleComplex temp = sv[idx];
 					sv[idx] = sv[paired_idx];
 					sv[paired_idx] = temp;
 				}
@@ -192,7 +194,7 @@ __global__ void cnot_chain_linear_kernel(cuComplex* __restrict__ batchedSv,
 	}
 }
 
-extern "C" void cuq_apply_cnot_chain_linear(cuComplex* batchedSv,
+extern "C" void cuq_apply_cnot_chain_linear(cuDoubleComplex* batchedSv,
 											uint32_t nSVs,
 											size_t state_size,
 											int nq,
