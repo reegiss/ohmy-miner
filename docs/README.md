@@ -1,59 +1,153 @@
-# OhMyMiner Documentation
+# OhMyMiner Documentation Index
 
-This directory contains technical documentation for the OhMyMiner GPU cryptocurrency miner.
+Complete technical documentation for the OhMyMiner GPU mining project.
 
-## 📄 Active Documentation
-
-### Primary Documents
-- **PROJECT_STATUS.md** - Complete project overview, architecture, and current status
-- **INSTALL_CUQUANTUM.md** - cuQuantum SDK installation guide
-- **cuda-performance-report.md** - Performance benchmarks and analysis
-- **CUDA_IMPLEMENTATION_COMPLETE.md** - CUDA implementation summary
-- **merkle-root-fix-summary.md** - Block construction debugging notes
-
-### Implementation Details
-- **cuda-implementation-decisions.md** - CUDA design decisions log
-- **cuquantum-integration.md** - cuQuantum integration notes
-- **cuquantum-optimization-summary.md** - cuQuantum optimization results
-- **cuquantum-batching-optimization.md** - Batched cuQuantum implementation
-
-### Reference Material
-- **ANALYSIS_REFERENCE_QHASH.md** - qhash algorithm specification analysis
-- **qtc-doc.md** - Qubitcoin documentation reference
-
-## 📦 Archived Documents
-
-Documents in `archive/` contain historical information that may be outdated:
-- References to CPU mining (now GPU-only)
-- Early implementation plans (superseded)
-- Debugging notes from resolved issues
-
-These are kept for historical reference but should not be used as current documentation.
-
-## 🎯 Quick Navigation
-
-**Getting Started**: Read `PROJECT_STATUS.md` first  
-**Performance Data**: See `cuda-performance-report.md`  
-**Building with cuQuantum**: Follow `INSTALL_CUQUANTUM.md`  
-**Algorithm Details**: Check `ANALYSIS_REFERENCE_QHASH.md`
-
-## 📊 Documentation Status
-
-| Document | Status | Last Updated | Accuracy |
-|----------|--------|--------------|----------|
-| PROJECT_STATUS.md | ✅ Current | Oct 31, 2025 | 100% |
-| cuda-performance-report.md | ✅ Current | Oct 30, 2025 | 100% |
-| INSTALL_CUQUANTUM.md | ✅ Current | Oct 29, 2025 | 100% |
-| merkle-root-fix-summary.md | ✅ Current | Oct 31, 2025 | 100% |
-| CUDA_IMPLEMENTATION_COMPLETE.md | ✅ Current | Oct 30, 2025 | 100% |
-
-## 🔄 Maintenance
-
-This documentation is actively maintained. If you find any inaccuracies:
-1. Check if the information is in `archive/` (historical only)
-2. Verify against the latest source code
-3. Refer to `PROJECT_STATUS.md` for current status
+**Last Updated**: November 2, 2025  
+**Project Status**: Phase 4B (Golden Vector Validation)  
+**Current Focus**: Kernel correctness validation before integration
 
 ---
 
-**Note**: All documents assume GPU-only mining. CPU mining references in archived documents are obsolete.
+## 📋 Quick Start Documents
+
+Essential reading for understanding current project status:
+
+### **[RESUMO_EXECUTIVO.md](RESUMO_EXECUTIVO.md)** (Português) ⭐
+Complete executive summary of recent work (Oct 28 - Nov 2, 2025):
+- Architecture pivot rationale (cuStateVec → O(1) monolithic kernel)
+- Phases 2-4B implementation details
+- Quality gates and validation results
+- Current blocker and next steps
+- **READ THIS FIRST** for project overview
+
+### **[EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md)** (English) ⭐
+High-level project overview:
+- Mission statement and performance targets
+- Architecture decision analysis
+- Risk assessment and success criteria
+- Resource requirements and timeline
+- Quality gates status
+
+### **[IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md)** �
+Comprehensive technical status document:
+- All implementation phases documented
+- Performance projections by phase
+- Technical achievements with code examples
+- Memory footprint and computational complexity
+- Critical path forward
+
+### **[PHASE_4B_GOLDEN_VECTORS.md](PHASE_4B_GOLDEN_VECTORS.md)** 🔬
+Golden vector validation guide:
+- Test input requirements
+- Expected output specifications
+- Extraction strategies (QTC reference, CPU simulator)
+- Validation workflow and success criteria
+- **CRITICAL** for unblocking current phase
+
+### **[RECENT_WORK.md](RECENT_WORK.md)** 📝
+Detailed changelog of recent implementation:
+- Phase-by-phase breakdown (Oct 28 - Nov 2)
+- Files modified/created with line counts
+- Build fixes and test results
+- Quality metrics summary
+
+---
+
+## 📖 Technical Documentation
+
+### Algorithm & Architecture
+
+#### **[ANALYSIS_REFERENCE_QHASH.md](ANALYSIS_REFERENCE_QHASH.md)**
+Deep dive into qhash proof-of-work algorithm:
+- Quantum circuit structure (16 qubits, 2 layers, 72 gates)
+- Parametrization from hash (nibble extraction)
+- Fixed-point Q15 consensus format
+- Complete pipeline analysis
+
+#### **[batching-analysis.md](batching-analysis.md)**
+Batching strategy and memory optimization:
+- O(1) VRAM architecture analysis
+- Memory layout per block
+- Batch size calculations
+- Pipeline optimization strategies
+
+#### **[cucomplex-types.md](cucomplex-types.md)**
+CUDA complex number handling:
+- cuDoubleComplex operations
+- Amplitude representation
+- Gate matrix operations
+
+### Build & Setup
+
+#### **[INSTALL_CUQUANTUM.md](INSTALL_CUQUANTUM.md)**
+cuQuantum SDK installation guide (legacy):
+- Installation steps
+- Environment configuration
+- Build system integration
+- **Note**: cuStateVec approach superseded, but SDK may be useful for validation
+
+### Reference Material
+
+#### **[qtc-doc.md](qtc-doc.md)**
+Qubitcoin documentation reference:
+- Protocol specifications
+- Block structure
+- Mining parameters
+
+---
+
+## 📦 Archived Documents
+
+**Location**: `archive/`
+
+Documents containing superseded approaches (cuStateVec integration attempts):
+
+- **[archive/cuquantum-integration.md](archive/cuquantum-integration.md)** - Initial cuStateVec backend
+- **[archive/cuquantum-optimization-summary.md](archive/cuquantum-optimization-summary.md)** - Optimization attempts
+- **[archive/cuquantum-batching-optimization.md](archive/cuquantum-batching-optimization.md)** - Batched cuStateVec
+- **[archive/critical-discovery-cuquantum.md](archive/critical-discovery-cuquantum.md)** - O(2^n) bottleneck discovery
+- **[archive/README.md](archive/README.md)** - Archive index with historical context
+
+**Why Archived**: O(2^n) VRAM scaling made approach impractical. Replaced by O(1) monolithic kernel.
+
+---
+
+## 🎯 Quick Navigation
+
+| Task | Document |
+|------|----------|
+| **Project overview** | [RESUMO_EXECUTIVO.md](RESUMO_EXECUTIVO.md) (PT) or [EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md) (EN) |
+| **Current status** | [IMPLEMENTATION_STATUS.md](IMPLEMENTATION_STATUS.md) |
+| **Unblock Phase 4B** | [PHASE_4B_GOLDEN_VECTORS.md](PHASE_4B_GOLDEN_VECTORS.md) |
+| **Recent work** | [RECENT_WORK.md](RECENT_WORK.md) |
+| **Algorithm details** | [ANALYSIS_REFERENCE_QHASH.md](ANALYSIS_REFERENCE_QHASH.md) |
+| **Batching strategy** | [batching-analysis.md](batching-analysis.md) |
+| **Historical context** | [archive/README.md](archive/README.md) |
+
+---
+
+## 📊 Documentation Status
+
+| Document | Status | Last Updated | Purpose |
+|----------|--------|--------------|---------|
+| RESUMO_EXECUTIVO.md | ✅ Current | Nov 2, 2025 | Executive summary (PT) |
+| EXECUTIVE_SUMMARY.md | ✅ Current | Nov 2, 2025 | Executive summary (EN) |
+| IMPLEMENTATION_STATUS.md | ✅ Current | Nov 2, 2025 | Technical status |
+| PHASE_4B_GOLDEN_VECTORS.md | ✅ Current | Nov 2, 2025 | Validation guide |
+| RECENT_WORK.md | ✅ Current | Nov 2, 2025 | Recent changelog |
+| ANALYSIS_REFERENCE_QHASH.md | ✅ Current | - | Algorithm reference |
+| batching-analysis.md | ✅ Current | - | Batching strategy |
+| archive/* | 📚 Historical | Oct 2025 | Superseded approaches |
+
+---
+
+## 🔄 Maintenance
+
+This documentation is actively maintained alongside code implementation.
+
+**Current Phase**: Phase 4B (Golden Vector Validation)  
+**Next Update**: After Phase 4B completion with validation results
+
+---
+
+**Note**: This is a GPU-only miner. All CPU mining references in archived documents are obsolete.

@@ -191,6 +191,16 @@ void CuQuantumSimulator::init_resources() {
 }
 
 void CuQuantumSimulator::free_resources() {
+    if (d_batched_states_pool_) {
+        cudaFree(d_batched_states_pool_);
+        d_batched_states_pool_ = nullptr;
+        d_batched_states_bytes_ = 0;
+    }
+    if (d_ws_batched_pool_) {
+        cudaFree(d_ws_batched_pool_);
+        d_ws_batched_pool_ = nullptr;
+        ws_batched_pool_size_ = 0;
+    }
     if (d_state_) {
         cudaFree(d_state_);
         d_state_ = nullptr;
@@ -616,14 +626,196 @@ std::vector<std::vector<Q15>> CuQuantumSimulator::simulate_and_measure_batched_a
     HostPinnedBuffers& host_buffers,
     GpuPipelineStreams& streams)
 {
-    // For phase 1 implementation: call existing sync version
-    // The caller will handle the async orchestration via events
-    (void)buffers;        // Will use in phase 2
-    (void)host_buffers;   // Will use in phase 2
-    (void)streams;        // Will use in phase 2
-    
-    // Use internal implementation for now
-    return cuquantum_simulate_and_measure_batched(*this, circuits, qubits_to_measure);
+    // Phase 2: real async path using external buffers and streams.
+    // Note: To limit VRAM usage, we still allocate the batched state vector per call
+    // here (single allocation), but we overlap H2D/D2H with compute using provided streams
+    // and reuse external small buffers (angles/mats/indices/qubits/results).
+
+    if (!handle_) throw std::runtime_error("cuQuantum handle not initialized");
+    if (circuits.empty()) return {};
+
+    const size_t nSVs = circuits.size();
+    const int nq = circuits[0].num_qubits();
+    if (nq > max_qubits_) throw std::runtime_error("circuits exceed simulator capacity");
+    for (size_t i = 1; i < circuits.size(); ++i) {
+        if (circuits[i].num_qubits() != nq ||
+            circuits[i].rotation_gates().size() != circuits[0].rotation_gates().size() ||
+            circuits[i].cnot_gates().size() != circuits[0].cnot_gates().size())
+            throw std::runtime_error("All circuits in batch must share structure");
+    }
+
+    const size_t stateSize = static_cast<size_t>(1ULL << nq);
+    const custatevecIndex_t svStride = static_cast<custatevecIndex_t>(stateSize);
+
+    // Bind cuStateVec handle to provided compute stream for this call
+    {
+        auto st = custatevecSetStream(handle_, streams.compute_stream);
+        if (st != CUSTATEVEC_STATUS_SUCCESS) {
+            throw std::runtime_error("custatevecSetStream failed in async path");
+        }
+    }
+
+    // Ensure persistent batched state pool capacity and initialize |0..0⟩ for all states
+    const size_t needed_bytes = nSVs * stateSize * sizeof(cuComplex);
+    if (d_batched_states_pool_ == nullptr || d_batched_states_bytes_ < needed_bytes) {
+        if (d_batched_states_pool_) cudaFree(d_batched_states_pool_);
+        CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_batched_states_pool_), needed_bytes));
+        d_batched_states_bytes_ = needed_bytes;
+    }
+    cuComplex* d_batched = d_batched_states_pool_;
+    CUDA_CHECK(cudaMemsetAsync(d_batched, 0, needed_bytes, streams.compute_stream));
+    cuq_set_basis_zero_for_batch(d_batched, static_cast<uint32_t>(nSVs), stateSize, streams.compute_stream);
+    CUDA_CHECK(cudaGetLastError());
+
+    // Ensure indices buffer exists and is filled
+    if (!buffers.d_indices) {
+        CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&buffers.d_indices), nSVs * sizeof(int32_t)));
+    }
+    cuq_fill_sequential_indices(buffers.d_indices, static_cast<uint32_t>(nSVs), streams.compute_stream);
+    CUDA_CHECK(cudaGetLastError());
+
+    // Workspace sizing (once per call). In future, cache in buffers.workspace.
+    size_t ws_rot = 0, ws_cnot = 0, ws_batched = 0; void* d_ws_batched = nullptr;
+    {
+        // Query using placeholders; matrices pointer not dereferenced during size query
+        custatevecStatus_t st = custatevecApplyMatrixBatchedGetWorkspaceSize(
+            handle_, CUDA_C_32F, nq, static_cast<uint32_t>(nSVs), svStride,
+            CUSTATEVEC_MATRIX_MAP_TYPE_MATRIX_INDEXED,
+            buffers.d_indices, /*d_mats*/ buffers.d_mats_buf[0], CUDA_C_32F,
+            CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            static_cast<uint32_t>(nSVs), 1, 0, CUSTATEVEC_COMPUTE_32F, &ws_rot);
+        if (st != CUSTATEVEC_STATUS_SUCCESS && st != CUSTATEVEC_STATUS_NOT_SUPPORTED)
+            throw std::runtime_error("ApplyMatrixBatchedGetWorkspaceSize (rot) failed");
+        cuComplex X[4]; X[0] = make_cuComplex(0.f,0.f); X[1] = make_cuComplex(1.f,0.f);
+        X[2] = make_cuComplex(1.f,0.f); X[3] = make_cuComplex(0.f,0.f);
+        size_t ws_tmp = 0;
+        st = custatevecApplyMatrixBatchedGetWorkspaceSize(
+            handle_, CUDA_C_32F, nq, static_cast<uint32_t>(nSVs), svStride,
+            CUSTATEVEC_MATRIX_MAP_TYPE_BROADCAST,
+            nullptr, X, CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            1, 1, 1, CUSTATEVEC_COMPUTE_32F, &ws_tmp);
+        if (st != CUSTATEVEC_STATUS_SUCCESS && st != CUSTATEVEC_STATUS_NOT_SUPPORTED)
+            throw std::runtime_error("ApplyMatrixBatchedGetWorkspaceSize (cnot) failed");
+        ws_cnot = ws_tmp;
+    }
+    ws_batched = ws_rot > ws_cnot ? ws_rot : ws_cnot;
+    if (ws_batched > 0 && (d_ws_batched_pool_ == nullptr || ws_batched_pool_size_ < ws_batched)) {
+        if (d_ws_batched_pool_) cudaFree(d_ws_batched_pool_);
+        CUDA_CHECK(cudaMalloc(&d_ws_batched_pool_, ws_batched));
+        ws_batched_pool_size_ = ws_batched;
+    }
+    d_ws_batched = d_ws_batched_pool_;
+
+    // Prepare qubits to measure on device
+    std::vector<int32_t> h_qubits;
+    if (qubits_to_measure.empty()) h_qubits = {0};
+    else h_qubits.assign(qubits_to_measure.begin(), qubits_to_measure.end());
+    const int nMatrices = static_cast<int>(h_qubits.size());
+    if (!buffers.d_qubits) {
+        CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&buffers.d_qubits), sizeof(int32_t) * nMatrices));
+    }
+    CUDA_CHECK(cudaMemcpyAsync(buffers.d_qubits, h_qubits.data(), sizeof(int32_t) * nMatrices, cudaMemcpyHostToDevice, streams.compute_stream));
+
+    // Ensure angle/matrix buffers exist
+    for (int i = 0; i < 2; ++i) {
+        if (!buffers.d_angles_buf[i]) CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&buffers.d_angles_buf[i]), nSVs * sizeof(float)));
+        if (!buffers.d_mats_buf[i]) CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&buffers.d_mats_buf[i]), nSVs * 4 * sizeof(cuComplex)));
+    }
+    if (!host_buffers.h_angles_pinned[0] || !host_buffers.h_angles_pinned[1]) {
+        throw std::runtime_error("HostPinnedBuffers not allocated for angles");
+    }
+
+    // Preload first gate angles to device via H2D stream
+    const auto& ref_rot = circuits[0].rotation_gates();
+    const size_t nRot = ref_rot.size();
+    if (nRot > 0) {
+        for (size_t s = 0; s < nSVs; ++s)
+            host_buffers.h_angles_pinned[0][s] = static_cast<float>(circuits[s].rotation_gates()[0].angle);
+        CUDA_CHECK(cudaMemcpyAsync(buffers.d_angles_buf[0], host_buffers.h_angles_pinned[0], nSVs * sizeof(float), cudaMemcpyHostToDevice, streams.h2d_stream));
+        CUDA_CHECK(cudaEventRecord(streams.h2d_done, streams.h2d_stream));
+    }
+
+    // Apply rotation gates with double-buffered angles/mats
+    for (size_t gi = 0; gi < nRot; ++gi) {
+        const auto& g0 = ref_rot[gi];
+        const int cur = static_cast<int>(gi & 1);
+        const int nxt = cur ^ 1;
+
+        // Stage next gate's angles on H2D stream
+        if (gi + 1 < nRot) {
+            for (size_t s = 0; s < nSVs; ++s)
+                host_buffers.h_angles_pinned[nxt][s] = static_cast<float>(circuits[s].rotation_gates()[gi + 1].angle);
+            CUDA_CHECK(cudaMemcpyAsync(buffers.d_angles_buf[nxt], host_buffers.h_angles_pinned[nxt], nSVs * sizeof(float), cudaMemcpyHostToDevice, streams.h2d_stream));
+            CUDA_CHECK(cudaEventRecord(streams.h2d_done, streams.h2d_stream));
+        }
+
+        // Wait for current angles to be in device memory
+        CUDA_CHECK(cudaStreamWaitEvent(streams.compute_stream, streams.h2d_done, 0));
+
+        // Generate matrices on compute stream and apply batched
+        if (g0.axis == RotationAxis::Y)
+            cuq_generate_ry_mats(buffers.d_angles_buf[cur], buffers.d_mats_buf[cur], static_cast<uint32_t>(nSVs), streams.compute_stream);
+        else
+            cuq_generate_rz_mats(buffers.d_angles_buf[cur], buffers.d_mats_buf[cur], static_cast<uint32_t>(nSVs), streams.compute_stream);
+        CUDA_CHECK(cudaGetLastError());
+
+        // ApplyMatrixBatched on same stream → guaranteed ordering, no sync needed
+
+        const int32_t targets[1] = { static_cast<int32_t>(g0.qubit) };
+        custatevecStatus_t st = custatevecApplyMatrixBatched(
+            handle_, d_batched, CUDA_C_32F, nq,
+            static_cast<uint32_t>(nSVs), svStride,
+            CUSTATEVEC_MATRIX_MAP_TYPE_MATRIX_INDEXED,
+            buffers.d_indices, buffers.d_mats_buf[cur], CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            static_cast<uint32_t>(nSVs),
+            targets, 1,
+            nullptr, nullptr, 0,
+            CUSTATEVEC_COMPUTE_32F,
+            d_ws_batched, ws_batched);
+        if (st != CUSTATEVEC_STATUS_SUCCESS) throw std::runtime_error("ApplyMatrixBatched (rot, async) failed");
+    }
+
+    // Apply CNOTs: broadcast X with control
+    const auto& ref_cx = circuits[0].cnot_gates();
+    cuComplex* d_X = nullptr;
+    {
+        cuComplex hX[4]; hX[0] = make_cuComplex(0.f,0.f); hX[1] = make_cuComplex(1.f,0.f);
+        hX[2] = make_cuComplex(1.f,0.f); hX[3] = make_cuComplex(0.f,0.f);
+        CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&d_X), 4 * sizeof(cuComplex)));
+        CUDA_CHECK(cudaMemcpyAsync(d_X, hX, 4 * sizeof(cuComplex), cudaMemcpyHostToDevice, streams.compute_stream));
+    }
+    for (const auto& cx : ref_cx) {
+        const int32_t targets[1] = { static_cast<int32_t>(cx.target) };
+        const int32_t controls[1] = { static_cast<int32_t>(cx.control) };
+        const int32_t controlVals[1] = { 1 };
+        custatevecStatus_t st = custatevecApplyMatrixBatched(
+            handle_, d_batched, CUDA_C_32F, nq,
+            static_cast<uint32_t>(nSVs), svStride,
+            CUSTATEVEC_MATRIX_MAP_TYPE_BROADCAST,
+            nullptr, d_X, CUDA_C_32F, CUSTATEVEC_MATRIX_LAYOUT_ROW, 0,
+            1,
+            targets, 1,
+            controls, controlVals, 1,
+            CUSTATEVEC_COMPUTE_32F,
+            d_ws_batched, ws_batched);
+        if (st != CUSTATEVEC_STATUS_SUCCESS) throw std::runtime_error("ApplyMatrixBatched (cnot, async) failed");
+    }
+    cudaFree(d_X);
+
+    // Compute Z expectations into device buffer
+    if (!buffers.d_outZ) {
+        CUDA_CHECK(cudaMalloc(reinterpret_cast<void**>(&buffers.d_outZ), sizeof(double) * nSVs * nMatrices));
+    }
+    cuq_compute_z_expectations(d_batched, static_cast<uint32_t>(nSVs), stateSize, buffers.d_qubits, nMatrices, buffers.d_outZ, streams.compute_stream);
+
+    // D2H copy to pinned host buffer on separate stream; caller will sync via its own event
+    if (!host_buffers.h_results_pinned) {
+        throw std::runtime_error("HostPinnedBuffers not allocated for results");
+    }
+    CUDA_CHECK(cudaMemcpyAsync(host_buffers.h_results_pinned, buffers.d_outZ, sizeof(double) * nSVs * nMatrices, cudaMemcpyDeviceToHost, streams.d2h_stream));
+
+    // Async path returns empty result; caller will read from pinned buffer after event sync
+    return {};
 }
 
 } // namespace quantum

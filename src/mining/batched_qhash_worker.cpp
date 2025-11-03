@@ -218,7 +218,8 @@ void BatchedQHashWorker::mine_job(const ohmy::pool::WorkPackage& work) {
                 
                 // Call the existing result processing logic
                 auto valid_nonces = process_batch_results(
-                    modified_work, nonces, circuits, nTime, qubits_to_measure, idx_collect);
+                    modified_work, nonces, circuits, nTime, qubits_to_measure, idx_collect,
+                    h_pinned_buffers_[idx_collect]->h_results_pinned);
                 
                 // Submit shares
                 for (uint32_t nonce : valid_nonces) {
@@ -262,22 +263,16 @@ void BatchedQHashWorker::mine_job(const ohmy::pool::WorkPackage& work) {
             // --- STAGE 2: Launch computation for batch N-1 (if iteration >= 1) ---
             if (iteration >= 1) {
                 // Simulate circuits on GPU (async call - will use sync wrapper for phase 1)
-                auto results = simulator_->get_cuquantum_backend()->simulate_and_measure_batched_async(
+                (void) simulator_->get_cuquantum_backend()->simulate_and_measure_batched_async(
                     cpu_circuits_buf_[idx_compute],
                     qubits_to_measure,
                     *d_io_buffers_[idx_compute],
                     *h_pinned_buffers_[idx_compute],
                     *streams_);
                 
-                // Store results temporarily (in phase 1, sync call returns immediately)
-                // In phase 2, we'll eliminate this and use async D2H
-                // For now, mark events as done
+                // Mark stage events for compute and D2H on respective streams; collection waits on these
                 CUDA_CHECK(cudaEventRecord(compute_events_[idx_compute], streams_->compute_stream));
                 CUDA_CHECK(cudaEventRecord(d2h_events_[idx_compute], streams_->d2h_stream));
-                
-                // Store results for later collection
-                // (Temporary: in phase 2 this will be DMA'd directly to pinned memory)
-                store_batch_results(idx_compute, results);
             }
             
             // --- STAGE 3: Prepare batch N (always) ---
@@ -311,7 +306,8 @@ void BatchedQHashWorker::mine_job(const ohmy::pool::WorkPackage& work) {
             
             auto valid_nonces = process_batch_results(
                 modified_work, cpu_nonces_buf_[idx_collect], 
-                cpu_circuits_buf_[idx_collect], nTime, qubits_to_measure, idx_collect);
+                cpu_circuits_buf_[idx_collect], nTime, qubits_to_measure, idx_collect,
+                h_pinned_buffers_[idx_collect]->h_results_pinned);
             
             for (uint32_t nonce : valid_nonces) {
                 ohmy::pool::ShareResult share;
@@ -728,37 +724,33 @@ std::string BatchedQHashWorker::format_extranonce2(uint64_t counter, size_t hex_
     return result;
 }
 
-void BatchedQHashWorker::store_batch_results(int buffer_idx, const std::vector<std::vector<Q15>>& results) {
-    stored_results_[buffer_idx] = results;
-}
-
-std::vector<std::vector<Q15>> BatchedQHashWorker::get_stored_results(int buffer_idx) {
-    return stored_results_[buffer_idx];
-}
-
 std::vector<uint32_t> BatchedQHashWorker::process_batch_results(
     const ohmy::pool::WorkPackage& work,
     const std::vector<uint32_t>& nonces,
     [[maybe_unused]] const std::vector<quantum::QuantumCircuit>& circuits,
     uint32_t nTime,
     [[maybe_unused]] const std::vector<int>& qubits_to_measure,
-    int buffer_idx)
+    [[maybe_unused]] int buffer_idx,
+    const double* results_ptr)
 {
     std::vector<uint32_t> valid_nonces;
-    
-    // Get stored results
-    auto all_expectations = get_stored_results(buffer_idx);
-    
+    const int nQ = static_cast<int>(qubits_to_measure.size());
+    if (results_ptr == nullptr) {
+        return valid_nonces;
+    }
+
     // Check each result against target
-    for (size_t i = 0; i < nonces.size() && i < all_expectations.size(); ++i) {
-        const auto& expectations = all_expectations[i];
-        
+    for (size_t i = 0; i < nonces.size(); ++i) {
+        // expectations for state i start at results_ptr + i*nQ
+        const double* ez_row = results_ptr + (i * nQ);
+
         // Convert expectations to fixed-point bytes
         std::vector<uint8_t> fixed_point_bytes;
         fixed_point_bytes.reserve(32);
         
-        for (const auto& exp : expectations) {
-            int16_t raw = static_cast<int16_t>(exp.raw());
+        for (int q = 0; q < nQ; ++q) {
+            Q15 qv = Q15::from_float(static_cast<float>(ez_row[q]));
+            int16_t raw = static_cast<int16_t>(qv.raw());
             fixed_point_bytes.push_back(static_cast<uint8_t>(raw & 0xFF));
             fixed_point_bytes.push_back(static_cast<uint8_t>((raw >> 8) & 0xFF));
         }

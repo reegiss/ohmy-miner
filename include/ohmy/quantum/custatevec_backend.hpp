@@ -145,6 +145,12 @@ private:
     void* d_workspace_{};           // reusable cuStateVec workspace
     size_t workspace_size_{};       // workspace size in bytes
     cudaStream_t stream_{};         // dedicated compute stream for cuStateVec operations
+
+    // Persistent pools for batched async path (avoid per-call alloc/free)
+    cuComplex* d_batched_states_pool_{}; // [nSVs * state_size]
+    size_t d_batched_states_bytes_{0};
+    void* d_ws_batched_pool_{};
+    size_t ws_batched_pool_size_{0};
 };
 
 } // namespace quantum

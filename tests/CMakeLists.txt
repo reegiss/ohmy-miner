@@ -18,6 +18,10 @@ set(TEST_EXECUTABLES
     test_performance_baseline
     test_batch_performance
     test_cuquantum_backend
+    test_fpm_consensus
+    test_sha256_device
+    test_fused_qhash_kernel
+    test_qhash_debug
 )
 
 # Include parent directories for headers
@@ -27,23 +31,91 @@ include_directories(${asio_SOURCE_DIR}/asio/include)
 
 # Build each test executable
 foreach(test_name ${TEST_EXECUTABLES})
-    add_executable(${test_name} ${test_name}.cpp)
-    
-    # Link against project libraries
-    target_link_libraries(${test_name} PRIVATE
-        fmt::fmt
-        nlohmann_json::nlohmann_json
-        OpenSSL::Crypto
-    )
-    
-    # Set C++20 standard
-    target_compile_features(${test_name} PRIVATE cxx_std_20)
+    # Special handling for CUDA tests
+    if(test_name STREQUAL "test_fpm_consensus" OR 
+       test_name STREQUAL "test_sha256_device" OR
+    test_name STREQUAL "test_fused_qhash_kernel" OR
+    test_name STREQUAL "test_qhash_debug")
+        add_executable(${test_name} ${test_name}.cu)
+        set_target_properties(${test_name} PROPERTIES
+            CUDA_SEPARABLE_COMPILATION ON
+            CUDA_STANDARD 17
+        )
+        target_link_libraries(${test_name} PRIVATE CUDA::cudart)
+    else()
+        add_executable(${test_name} ${test_name}.cpp)
+        
+        # Link against project libraries
+        target_link_libraries(${test_name} PRIVATE
+            fmt::fmt
+            nlohmann_json::nlohmann_json
+            OpenSSL::Crypto
+        )
+        
+        # Set C++20 standard
+        target_compile_features(${test_name} PRIVATE cxx_std_20)
+    endif()
     
     # Add to test suite
     add_test(NAME ${test_name} COMMAND ${test_name})
 endforeach()
 
 # Link specific dependencies for each test
+
+# FPM Consensus test (CUDA golden test for fixed-point conversion)
+target_sources(test_fpm_consensus PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/fixed_point.cpp
+)
+target_include_directories(test_fpm_consensus PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+)
+# Disable device linking for this simple CUDA test
+set_target_properties(test_fpm_consensus PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_RESOLVE_DEVICE_SYMBOLS OFF
+)
+
+# SHA256 Device test (CUDA test for device-side SHA256)
+target_sources(test_sha256_device PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/crypto/sha256d.cpp
+)
+target_include_directories(test_sha256_device PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+)
+set_target_properties(test_sha256_device PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_RESOLVE_DEVICE_SYMBOLS OFF
+)
+target_link_libraries(test_sha256_device PRIVATE OpenSSL::Crypto)
+
+# Fused QHash Kernel test (CUDA test for on-the-fly kernel)
+target_sources(test_fused_qhash_kernel PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/quantum/fused_qhash_kernel.cu
+)
+target_include_directories(test_fused_qhash_kernel PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+)
+set_target_properties(test_fused_qhash_kernel PROPERTIES
+    CUDA_SEPARABLE_COMPILATION OFF
+    CUDA_RESOLVE_DEVICE_SYMBOLS OFF
+)
+
+# QHash Debug test (Golden value validation with intermediate outputs)
+target_sources(test_qhash_debug PRIVATE
+    ${CMAKE_SOURCE_DIR}/src/quantum/fused_qhash_kernel.cu
+)
+target_include_directories(test_qhash_debug PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${CMAKE_SOURCE_DIR}/src
+)
+set_target_properties(test_qhash_debug PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_RESOLVE_DEVICE_SYMBOLS ON
+    CUDA_RUNTIME_LIBRARY Shared
+)
 
 # Fixed-point test needs fixed_point implementation
 target_sources(test_fixed_point PRIVATE
@@ -154,7 +226,7 @@ endif()
 
 # Link cuQuantum backend into tests when enabled
 if(OHMY_WITH_CUQUANTUM AND HAVE_CUQUANTUM)
-    foreach(tgt IN ITEMS test_quantum_simulator test_cuda_backend test_performance_baseline test_cuquantum_backend)
+    foreach(tgt IN ITEMS test_quantum_simulator test_cuda_backend test_performance_baseline test_cuquantum_backend test_batch_performance)
         target_sources(${tgt} PRIVATE
             ${CMAKE_SOURCE_DIR}/src/quantum/custatevec_backend.cpp
             ${CMAKE_SOURCE_DIR}/src/quantum/custatevec_batched.cu)

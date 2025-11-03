@@ -44,13 +44,14 @@ extern __global__ void cnot_chain_kernel(
     int num_qubits,
     size_t state_size);
 
-// Helper: auto-tune batch size based on free VRAM (leave 20% headroom)
+// Helper: auto-tune batch size based on free VRAM (leave reasonable headroom)
 static int auto_tune_batch_size(int desired_batch, int num_qubits, int device_id) {
     DeviceInfo info = DeviceInfo::query(device_id);
     size_t state_size = (1ULL << num_qubits);
     size_t mem_per_state = state_size * sizeof(Complex);
-    // Be conservative: reserve ~66% headroom to account for additional buffers/workspace
-    size_t usable = static_cast<size_t>(info.free_memory * 0.34);
+    // Conservative-balanced: use ~30% of currently free VRAM for state vectors
+    // cuQuantum workspace overhead is significant (~2-3x state memory), so leave ample headroom.
+    size_t usable = static_cast<size_t>(info.free_memory * 0.30);
     int max_by_mem = static_cast<int>(usable / mem_per_state);
     // Round down to nearest 256 for nicer scheduling
     if (max_by_mem > 0) max_by_mem = (max_by_mem / 256) * 256;

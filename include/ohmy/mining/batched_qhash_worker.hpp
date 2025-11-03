@@ -74,14 +74,9 @@ private:
         const std::vector<quantum::QuantumCircuit>& circuits,
         uint32_t nTime,
         const std::vector<int>& qubits_to_measure,
-        int buffer_idx
+        [[maybe_unused]] int buffer_idx,
+        const double* results_ptr
     );
-    
-    // Store batch results temporarily (phase 1)
-    void store_batch_results(int buffer_idx, const std::vector<std::vector<Q15>>& results);
-    
-    // Retrieve stored batch results
-    std::vector<std::vector<Q15>> get_stored_results(int buffer_idx);
     
     // Hash utilities
     std::vector<uint8_t> sha256_raw(const std::vector<uint8_t>& input);
@@ -128,9 +123,6 @@ private:
     // CPU work buffers (prepared while GPU processes previous batch)
     std::array<std::vector<quantum::QuantumCircuit>, kNumBuffers> cpu_circuits_buf_;
     std::array<std::vector<uint32_t>, kNumBuffers> cpu_nonces_buf_;
-    
-    // Temporary result storage (phase 1 - will be removed in phase 2 async)
-    std::array<std::vector<std::vector<Q15>>, kNumBuffers> stored_results_;
     
     // Pipeline state
     int num_qubits_{16};  // qhash uses 16 qubits

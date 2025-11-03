@@ -265,28 +265,25 @@ int main(int argc, char* argv[]) {
             }
         }
 
-        // GPU MODE: Create single batched worker with auto-tuned batch size
+        // GPU MODE: Create single batched worker. Let the simulator auto-tune batch size.
         constexpr int NUM_QUBITS = 16;
-        // Auto-tune batch size based on free VRAM (leave 20% headroom)
-        size_t state_size_bytes = (1ULL << NUM_QUBITS) * sizeof(ohmy::quantum::cuda::Complex);
-        size_t usable_mem = static_cast<size_t>(gpu_info.free_memory * 0.8);
-        int max_batch_by_mem = static_cast<int>(usable_mem / state_size_bytes);
-        int desired_batch = 8192; // target for 12GB GPUs; will clamp below
-        int BATCH_SIZE = std::max(256, std::min(desired_batch, max_batch_by_mem));
-        if (BATCH_SIZE < desired_batch) {
-            ohmy::log::line("Auto-tuned batch size from {} to {} based on free VRAM ({} free)",
-                            desired_batch, BATCH_SIZE, ohmy::quantum::cuda::MemoryRequirements::format_bytes(gpu_info.free_memory));
-        }
+        const int desired_batch = 16384; // Target for large GPUs; simulator will tune down if needed
 
         if (!params.no_mining) {
             try {
-                // Create batched CUDA simulator
+                // Create batched CUDA simulator (auto-tunes internally based on VRAM/workspaces)
                 auto simulator = std::make_unique<ohmy::quantum::cuda::BatchedCudaSimulator>(
-                    NUM_QUBITS, BATCH_SIZE, 0);
+                    NUM_QUBITS, desired_batch, 0);
+                const int tuned_batch = simulator->batch_size();
+                if (tuned_batch != desired_batch) {
+                    ohmy::log::line("Auto-tuned batch size from {} to {} (free VRAM: {})",
+                                    desired_batch, tuned_batch,
+                                    ohmy::quantum::cuda::MemoryRequirements::format_bytes(gpu_info.free_memory));
+                }
 
-                // Create GPU worker
+                // Create GPU worker with the simulator's tuned batch size
                 auto worker = std::make_shared<ohmy::mining::BatchedQHashWorker>(
-                    std::move(simulator), 0, BATCH_SIZE);
+                    std::move(simulator), 0, tuned_batch);
 
                 // Set share callback
                 worker->set_share_callback([stratum](const ohmy::pool::ShareResult& share) {
@@ -301,7 +298,7 @@ int main(int argc, char* argv[]) {
                 const int cu = gpu_info.multiprocessor_count;
                 double free_mb = static_cast<double>(gpu_info.free_memory) / (1024.0 * 1024.0);
                 // Heuristic intensity from batch size (tuned to resemble typical values)
-                int intensity = static_cast<int>(std::round(std::log2(BATCH_SIZE))) + 13;
+                int intensity = static_cast<int>(std::round(std::log2(tuned_batch))) + 13;
                 ohmy::log::line("threads: {}, intensity: {}, cu: {}, mem: {}Mb",
                                 threads, intensity, cu, static_cast<int>(free_mb));
             } catch (const std::exception& e) {
