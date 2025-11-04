@@ -9,6 +9,8 @@
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
+#include <vector>
+#include <cctype>
 
 #include <cxxopts.hpp>
 #include <fmt/core.h>
@@ -44,15 +46,53 @@ static void apply_config_file(CmdArgs& cfg, const std::string& path = "miner.con
     auto first_non_space = text.find_first_not_of(" \t\n\r");
     if (first_non_space == std::string::npos) return;
     if (text[first_non_space] == '{') {
-        // JSON format
+        // JSON format with light schema validation
+        auto validate = [](const nlohmann::json& j) -> std::vector<std::string> {
+            std::vector<std::string> errs;
+            auto expect_string = [&](const char* key) {
+                if (j.contains(key) && !j.at(key).is_string()) {
+                    errs.push_back(fmt::format("'{}' deve ser string", key));
+                }
+            };
+            expect_string("algo");
+            expect_string("url");
+            expect_string("user");
+            expect_string("pass");
+            if (j.contains("algo") && j.at("algo").is_string()) {
+                std::string a = j.at("algo").get<std::string>();
+                if (a != "qhash") errs.push_back("algo deve ser 'qhash'");
+            }
+            if (j.contains("url") && j.at("url").is_string()) {
+                std::string u = j.at("url").get<std::string>();
+                auto pos = u.rfind(':');
+                if (pos == std::string::npos || pos == u.size() - 1) {
+                    errs.push_back("url deve ser no formato host:port");
+                } else {
+                    std::string port = u.substr(pos + 1);
+                    if (port.empty() || !std::all_of(port.begin(), port.end(), ::isdigit)) {
+                        errs.push_back("porta em url deve conter apenas dígitos");
+                    }
+                }
+            }
+            return errs;
+        };
+
         try {
             nlohmann::json j = nlohmann::json::parse(text);
+            auto errs = validate(j);
+            if (!errs.empty()) {
+                fmt::print(stderr, "miner.conf inválido:\n");
+                for (const auto& e : errs) fmt::print(stderr, "  - {}\n", e);
+                // ignore invalid config but continue (CLI/env may provide values)
+                return;
+            }
             if (j.contains("algo")) cfg.algo = j.at("algo").get<std::string>();
             if (j.contains("url"))  cfg.url  = j.at("url").get<std::string>();
             if (j.contains("user")) cfg.user = j.at("user").get<std::string>();
             if (j.contains("pass")) cfg.pass = j.at("pass").get<std::string>();
-        } catch (const std::exception&) {
-            // ignore parse errors silently for now
+        } catch (const std::exception& ex) {
+            fmt::print(stderr, "Falha ao ler miner.conf: {}\n", ex.what());
+            return;
         }
     } else {
         // key=value format
