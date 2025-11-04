@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Unit Testing Infrastructure**: Comprehensive test suite with doctest framework
+  - `test_config_validator`: Hostname and URL validation tests (5 test cases, 37 assertions)
+  - `test_stratum_messages`: JSON-RPC message builder tests (7 test cases)
+  - `test_mining_job`: Mining notify parser tests (10 test cases)
+  - All tests integrated with CTest (11/11 passing)
+
+### Changed
+- **Code Quality Improvements**: Refactored `StratumClient::probe_connect()`
+  - Extracted `do_handshake_async()` helper function
+  - Reduced complexity: 150→70 lines, 7→4 indentation levels
+  - Eliminated duplication between probe and listen modes
+  - Improved maintainability following DRY principle
+
 ### Planned
 - GPU CUDA quantum kernels implementation
 - Batched nonce processing on GPU

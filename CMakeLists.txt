@@ -52,8 +52,12 @@ FetchContent_Declare(fpm
   GIT_REPOSITORY https://github.com/MikeLankamp/fpm.git
   GIT_TAG v1.1.0
 )
+FetchContent_Declare(doctest
+  GIT_REPOSITORY https://github.com/doctest/doctest.git
+  GIT_TAG v2.4.11
+)
 
-FetchContent_MakeAvailable(fmt cxxopts json asio)
+FetchContent_MakeAvailable(fmt cxxopts json asio doctest)
 
 # fpm is header-only; populate sources but do not build its extras
 FetchContent_Populate(fpm)
@@ -129,4 +133,34 @@ if (BUILD_TESTING)
   )
   add_test(NAME test_stratum_messages COMMAND test_stratum_messages)
   set_tests_properties(test_stratum_messages PROPERTIES PASS_REGULAR_EXPRESSION "mining.subscribe|mining.authorize")
+  
+  # Unit tests with doctest
+  # Config validator tests
+  add_executable(test_config_validator tests/unit/test_config_validator.cpp)
+  target_sources(test_config_validator PRIVATE src/config/validator.cpp)
+  target_link_libraries(test_config_validator PRIVATE doctest::doctest fmt::fmt)
+  target_include_directories(test_config_validator PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+  )
+  add_test(NAME unit_config_validator COMMAND test_config_validator)
+  
+  # Stratum messages tests
+  add_executable(test_stratum_messages_unit tests/unit/test_stratum_messages.cpp)
+  target_sources(test_stratum_messages_unit PRIVATE src/pool/stratum_messages.cpp)
+  target_link_libraries(test_stratum_messages_unit PRIVATE doctest::doctest fmt::fmt)
+  target_include_directories(test_stratum_messages_unit PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${json_SOURCE_DIR}/include
+  )
+  add_test(NAME unit_stratum_messages COMMAND test_stratum_messages_unit)
+  
+  # Mining job parser tests
+  add_executable(test_mining_job_unit tests/unit/test_mining_job.cpp)
+  target_sources(test_mining_job_unit PRIVATE src/pool/mining_job.cpp)
+  target_link_libraries(test_mining_job_unit PRIVATE doctest::doctest fmt::fmt)
+  target_include_directories(test_mining_job_unit PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${json_SOURCE_DIR}/include
+  )
+  add_test(NAME unit_mining_job COMMAND test_mining_job_unit)
 endif()
