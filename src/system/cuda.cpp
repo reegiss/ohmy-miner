@@ -5,19 +5,19 @@
 
 namespace ohmy::system {
 
-void print_cuda_info() {
+void print_cuda_info(ohmy::logging::Logger& log) {
     int device_count = 0;
     cudaError_t cerr = cudaGetDeviceCount(&device_count);
     if (cerr == cudaSuccess && device_count > 0) {
-        fmt::print("CUDA devices: {}\n", device_count);
+        log.info(fmt::format("CUDA devices: {}", device_count));
         for (int d = 0; d < device_count; ++d) {
             cudaDeviceProp prop{};
             if (cudaGetDeviceProperties(&prop, d) == cudaSuccess) {
-                fmt::print("  [{}] {} (SM {}.{}, {} MB)\n", d, prop.name, prop.major, prop.minor, prop.totalGlobalMem / (1024 * 1024));
+                log.info(fmt::format("  [{}] {} (SM {}.{}, {} MB)", d, prop.name, prop.major, prop.minor, prop.totalGlobalMem / (1024 * 1024)));
             }
         }
     } else {
-        fmt::print("CUDA not available or no devices found.\n");
+        log.warn("CUDA not available or no devices found.");
     }
 }
 

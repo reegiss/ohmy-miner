@@ -11,7 +11,7 @@
 
 namespace ohmy::cli {
 
-ohmy::config::ParseResult parse(int argc, char** argv) {
+ohmy::config::ParseResult parse(int argc, char** argv, ohmy::logging::Logger& log) {
     ohmy::config::ParseResult pr;
     cxxopts::Options options("ohmy-miner", "GPU miner for Qubitcoin (qhash)");
     options.add_options()
@@ -26,12 +26,12 @@ ohmy::config::ParseResult parse(int argc, char** argv) {
     try {
         auto result = options.parse(argc, argv);
         if (result.count("help")) {
-            fmt::print("{}\n", options.help());
+            log.info(options.help());
             pr.show_only = true;
             return pr;
         }
         if (result.count("version")) {
-            fmt::print("ohmy-miner v{}\n", OHMY_MINER_VERSION);
+            log.info(fmt::format("ohmy-miner v{}", OHMY_MINER_VERSION));
             pr.show_only = true;
             return pr;
         }
@@ -43,7 +43,7 @@ ohmy::config::ParseResult parse(int argc, char** argv) {
         pr.config_path = result["config"].as<std::string>();
         pr.cfg = cfg;
     } catch (const std::exception& e) {
-        fmt::print(stderr, "Argument error: {}\n\n{}\n", e.what(), options.help());
+        log.error(fmt::format("Argument error: {}\n\n{}", e.what(), options.help()));
         return pr;
     }
     return pr;

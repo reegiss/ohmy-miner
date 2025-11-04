@@ -65,6 +65,7 @@ add_executable(ohmy-miner
   src/config/loader.cpp
   src/config/validator.cpp
   src/system/cuda.cpp
+  src/logging/fmt_logger.cpp
 )
 
 # Enable CUDA for the target
