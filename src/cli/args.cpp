@@ -21,11 +21,10 @@ ohmy::config::ParseResult parse(int argc, char** argv, ohmy::logging::Logger& lo
         ("pass",   "Pool password", cxxopts::value<std::string>()->default_value("x"))
         ("config", "Path to config file (miner.conf)", cxxopts::value<std::string>()->default_value("miner.conf"))
         ("d,debug","Enable debug logging")
-    ("stratum-connect", "Probe TCP connection to pool and exit")
+        ("stratum-connect", "Probe TCP connection to pool and exit")
+        ("stratum-listen", "Connect and listen to mining.notify for 10s")
         ("v,version", "Show version and exit")
-        ("h,help",    "Show help and exit");
-
-    try {
+        ("h,help",    "Show help and exit");    try {
         auto result = options.parse(argc, argv);
         if (result.count("help")) {
             log.info(options.help());
@@ -45,6 +44,7 @@ ohmy::config::ParseResult parse(int argc, char** argv, ohmy::logging::Logger& lo
         pr.config_path = result["config"].as<std::string>();
         pr.debug = result.count("debug") > 0;
         pr.stratum_connect = result.count("stratum-connect") > 0;
+        pr.stratum_listen = result.count("stratum-listen") > 0;
         pr.cfg = cfg;
     } catch (const std::exception& e) {
         log.error(fmt::format("Argument error: {}\n\n{}", e.what(), options.help()));

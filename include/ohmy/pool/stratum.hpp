@@ -33,6 +33,12 @@ public:
     // Stop IO and join thread
     void stop();
 
+    // Small step: synchronous probe that attempts TCP resolve+connect and returns success.
+    bool probe_connect();
+
+    // Listen mode: connect, handshake, then keep reading mining.notify for a duration (seconds)
+    bool listen_mode(int duration_sec);
+
     // Optional: user callback for mining.notify raw payload (JSON string)
     void on_notify(std::function<void(std::string_view)> cb);
 

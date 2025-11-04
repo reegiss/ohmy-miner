@@ -60,6 +60,23 @@ int main(int argc, char** argv) {
         return ok ? 0 : 2;
     }
 
+    // 4.2) Optional Stratum listen mode (keeps connection open for mining.notify)
+    if (pr.stratum_listen) {
+        auto pos = cfg.url.rfind(':');
+        if (pos == std::string::npos || pos == cfg.url.size()-1) {
+            logger.error("--stratum-listen: url deve ser host:port");
+            return 1;
+        }
+        ohmy::pool::StratumOptions sopts;
+        sopts.host = cfg.url.substr(0, pos);
+        sopts.port = cfg.url.substr(pos + 1);
+        sopts.user = cfg.user;
+        sopts.pass = cfg.pass;
+        ohmy::pool::StratumClient client(logger, std::move(sopts));
+        bool ok = client.listen_mode(10); // Listen for 10 seconds
+        return ok ? 0 : 2;
+    }
+
     // 5) CUDA info (best-effort)
     ohmy::system::print_cuda_info(logger);
 

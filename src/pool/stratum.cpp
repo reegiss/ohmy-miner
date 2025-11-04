@@ -225,4 +225,192 @@ bool StratumClient::probe_connect() {
     }
 }
 
+bool StratumClient::listen_mode(int duration_sec) {
+    // Similar to probe_connect but keeps connection open to read mining.notify continuously
+    try {
+        asio::io_context ioc;
+        asio::ip::tcp::resolver resolver{ioc};
+        asio::ip::tcp::socket socket{ioc};
+        asio::steady_timer connect_timer{ioc};
+        asio::steady_timer listen_timer{ioc};
+
+        const auto connect_timeout = 3s;
+        std::atomic<bool> timed_out{false};
+        std::atomic<bool> handshake_ok{false};
+        std::atomic<bool> listen_done{false};
+        std::string err_msg;
+
+        log_.info(std::string("Stratum listen: resolving ") + opts_.host + ":" + opts_.port);
+
+        // Connect timeout (handshake phase)
+        connect_timer.expires_after(connect_timeout);
+        connect_timer.async_wait([&](const std::error_code& ec){
+            if (ec) return;
+            timed_out.store(true);
+            std::error_code ignored;
+            resolver.cancel();
+            socket.close(ignored);
+        });
+
+        // Resolve and connect
+        resolver.async_resolve(opts_.host, opts_.port,
+            [&](const std::error_code& ec, asio::ip::tcp::resolver::results_type results){
+                if (ec) {
+                    if (!timed_out.load()) err_msg = std::string("resolve: ") + ec.message();
+                    return;
+                }
+                log_.info("Stratum listen: connecting...");
+                asio::async_connect(socket, results,
+                    [&](const std::error_code& ec2, const asio::ip::tcp::endpoint&){
+                        if (!ec2) {
+                            log_.info("Stratum listen: connected, sending subscribe...");
+                            auto sub_line = stratum_messages::build_subscribe(opts_.client, 1);
+                            asio::async_write(socket, asio::buffer(sub_line),
+                                [&](const std::error_code& ec_write, std::size_t){
+                                    if (ec_write) {
+                                        if (!timed_out.load()) err_msg = std::string("write subscribe: ") + ec_write.message();
+                                        return;
+                                    }
+                                    auto buf = std::make_shared<asio::streambuf>();
+                                    asio::async_read_until(socket, *buf, '\n',
+                                        [&, buf](const std::error_code& ec_read, std::size_t){
+                                            if (!ec_read) {
+                                                std::istream is(buf.get());
+                                                std::string line;
+                                                std::getline(is, line);
+                                                try {
+                                                    auto j = json::parse(line);
+                                                    if (j.contains("error") && !j["error"].is_null()) {
+                                                        err_msg = "subscribe error";
+                                                        return;
+                                                    }
+                                                    if (j.contains("result") && j["result"].is_array() && j["result"].size() >= 3) {
+                                                        std::string extranonce1 = j["result"][1].get<std::string>();
+                                                        int extranonce2_size = j["result"][2].get<int>();
+                                                        log_.info(std::string("Stratum listen: subscribe OK, extranonce1=") + extranonce1 
+                                                                  + ", extranonce2_size=" + std::to_string(extranonce2_size));
+                                                        
+                                                        // Send authorize
+                                                        auto auth_line = stratum_messages::build_authorize(opts_.user, opts_.pass, 2);
+                                                        asio::async_write(socket, asio::buffer(auth_line),
+                                                            [&](const std::error_code& ec_auth, std::size_t){
+                                                                if (ec_auth) {
+                                                                    if (!timed_out.load()) err_msg = std::string("write authorize: ") + ec_auth.message();
+                                                                    return;
+                                                                }
+                                                                
+                                                                // Read continuously until authorize response
+                                                                auto buf2 = std::make_shared<asio::streambuf>();
+                                                                auto read_until_auth = std::make_shared<std::function<void()>>();
+                                                                *read_until_auth = [&, buf2, read_until_auth](){
+                                                                    asio::async_read_until(socket, *buf2, '\n',
+                                                                        [&, buf2, read_until_auth](const std::error_code& ec2, std::size_t){
+                                                                            if (!ec2) {
+                                                                                std::istream is2(buf2.get());
+                                                                                std::string line2;
+                                                                                std::getline(is2, line2);
+                                                                                log_.info(std::string("Stratum listen: <- ") + line2);
+                                                                                
+                                                                                try {
+                                                                                    auto j2 = json::parse(line2);
+                                                                                    if (j2.contains("id") && j2["id"].is_number_integer() && j2["id"].get<int>() == 2) {
+                                                                                        if (j2.contains("result") && j2["result"].get<bool>()) {
+                                                                                            log_.info("Stratum listen: authorize OK, entering listen mode...");
+                                                                                            handshake_ok.store(true);
+                                                                                            std::error_code ignored;
+                                                                                            connect_timer.cancel(ignored);
+                                                                                            
+                                                                                            // Start listen duration timer
+                                                                                            listen_timer.expires_after(std::chrono::seconds(duration_sec));
+                                                                                            listen_timer.async_wait([&](const std::error_code& ec_timer){
+                                                                                                if (!ec_timer) {
+                                                                                                    log_.info(std::string("Stratum listen: duration expired (") + std::to_string(duration_sec) + "s)");
+                                                                                                    listen_done.store(true);
+                                                                                                    std::error_code ignored2;
+                                                                                                    socket.close(ignored2);
+                                                                                                }
+                                                                                            });
+                                                                                            
+                                                                                            // Continue reading notify messages
+                                                                                            auto read_notify = std::make_shared<std::function<void()>>();
+                                                                                            *read_notify = [&, buf2, read_notify](){
+                                                                                                asio::async_read_until(socket, *buf2, '\n',
+                                                                                                    [&, buf2, read_notify](const std::error_code& ec3, std::size_t){
+                                                                                                        if (!ec3) {
+                                                                                                            std::istream is3(buf2.get());
+                                                                                                            std::string line3;
+                                                                                                            std::getline(is3, line3);
+                                                                                                            try {
+                                                                                                                auto j3 = json::parse(line3);
+                                                                                                                if (j3.contains("method") && j3["method"] == "mining.notify") {
+                                                                                                                    std::string job_id = j3["params"][0].get<std::string>();
+                                                                                                                    log_.info(std::string("Stratum listen: NOTIFY job_id=") + job_id);
+                                                                                                                } else {
+                                                                                                                    log_.info(std::string("Stratum listen: <- ") + line3);
+                                                                                                                }
+                                                                                                            } catch (...) {
+                                                                                                                log_.debug(std::string("Stratum listen: unparseable: ") + line3);
+                                                                                                            }
+                                                                                                            (*read_notify)();
+                                                                                                        }
+                                                                                                    }
+                                                                                                );
+                                                                                            };
+                                                                                            (*read_notify)();
+                                                                                        } else {
+                                                                                            err_msg = "authorize failed";
+                                                                                        }
+                                                                                    } else {
+                                                                                        (*read_until_auth)();
+                                                                                    }
+                                                                                } catch (...) {
+                                                                                    (*read_until_auth)();
+                                                                                }
+                                                                            } else if (!timed_out.load()) {
+                                                                                err_msg = std::string("read: ") + ec2.message();
+                                                                            }
+                                                                        }
+                                                                    );
+                                                                };
+                                                                (*read_until_auth)();
+                                                            }
+                                                        );
+                                                    } else {
+                                                        err_msg = "subscribe format invalid";
+                                                    }
+                                                } catch (const json::exception& e) {
+                                                    err_msg = std::string("JSON: ") + e.what();
+                                                }
+                                            } else if (!timed_out.load()) {
+                                                err_msg = std::string("read subscribe: ") + ec_read.message();
+                                            }
+                                        }
+                                    );
+                                }
+                            );
+                        } else if (!timed_out.load()) {
+                            err_msg = std::string("connect: ") + ec2.message();
+                        }
+                    }
+                );
+            }
+        );
+
+        ioc.run();
+
+        if (listen_done.load()) {
+            return true;
+        }
+        if (timed_out.load()) {
+            log_.error("Stratum listen failed: timeout during handshake");
+        } else if (!err_msg.empty()) {
+            log_.error(std::string("Stratum listen failed: ") + err_msg);
+        }
+        return false;
+    } catch (const std::exception& e) {
+        log_.error(std::string("Stratum listen exception: ") + e.what());
+        return false;
+    }
+}
+
 } // namespace ohmy::pool
