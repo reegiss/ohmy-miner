@@ -26,7 +26,10 @@ Veja `docs/miner.conf.example`:
 ## Validações (schema leve)
 
 - `algo`: se presente, deve ser "qhash".
-- `url`: formato `host:port` com `port` numérica.
+- `url`:
+  - Formato `host:port`.
+  - `host` com labels separados por `.`; cada label 1..63 chars, apenas `[A-Za-z0-9-]`, sem começar/terminar com `-`; hostname total ≤ 253.
+  - `port` numérica no intervalo `1..65535`.
 - `user`, `pass`: strings.
 
 Erros de validação são impressos no stderr e o arquivo é ignorado; o miner segue com CLI/env.
