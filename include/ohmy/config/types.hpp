@@ -16,6 +16,7 @@ struct ParseResult {
     std::optional<MinerConfig> cfg; // present when valid and ready to run
     std::string config_path{"miner.conf"};
     bool show_only{false}; // true if --help/--version was printed
+    bool debug{false};     // true if --debug was passed on CLI
 };
 
 } // namespace ohmy::config

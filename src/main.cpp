@@ -16,6 +16,9 @@ int main(int argc, char** argv) {
     ohmy::logging::FmtLogger logger;
     // 1) Parse CLI
     auto pr = ohmy::cli::parse(argc, argv, logger);
+    // Enable verbose logging as early as possible
+    logger.set_debug(pr.debug);
+    if (pr.debug) logger.debug("debug logging enabled");
     if (pr.show_only) return 0;
     if (!pr.cfg.has_value()) return 1;
 
