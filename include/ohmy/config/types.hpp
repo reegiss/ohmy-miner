@@ -17,6 +17,7 @@ struct ParseResult {
     std::string config_path{"miner.conf"};
     bool show_only{false}; // true if --help/--version was printed
     bool debug{false};     // true if --debug was passed on CLI
+    bool stratum_connect{false}; // true if --stratum-connect probe requested
 };
 
 } // namespace ohmy::config

@@ -59,3 +59,4 @@ pass=x
 - Use `--url host:port`, `--user` e `--pass` para autenticar na pool.
 - A conexão Stratum v1 será implementada em etapas: subscribe → authorize → receber jobs (`mining.notify`).
 - Por enquanto, esta funcionalidade está em desenvolvimento e pode mudar.
+- Você pode testar apenas a conectividade TCP com `--stratum-connect`; isso tenta resolver e conectar ao `host:port` e encerra.

@@ -11,6 +11,7 @@
 #include <ohmy/config/loader.hpp>
 #include <ohmy/system/cuda.hpp>
 #include <ohmy/logging/fmt_logger.hpp>
+#include <ohmy/pool/stratum.hpp>
 
 int main(int argc, char** argv) {
     ohmy::logging::FmtLogger logger;
@@ -41,6 +42,23 @@ int main(int argc, char** argv) {
     logger.info(fmt::format("  url     : {}", cfg.url));
     logger.info(fmt::format("  user    : {}", cfg.user));
     logger.info(fmt::format("  pass    : {}", cfg.pass));
+
+    // 4.1) Optional one-shot Stratum connectivity probe
+    if (pr.stratum_connect) {
+        auto pos = cfg.url.rfind(':');
+        if (pos == std::string::npos || pos == cfg.url.size()-1) {
+            logger.error("--stratum-connect: url deve ser host:port");
+            return 1;
+        }
+        ohmy::pool::StratumOptions sopts;
+        sopts.host = cfg.url.substr(0, pos);
+        sopts.port = cfg.url.substr(pos + 1);
+        sopts.user = cfg.user;
+        sopts.pass = cfg.pass;
+        ohmy::pool::StratumClient client(logger, std::move(sopts));
+        bool ok = client.probe_connect();
+        return ok ? 0 : 2;
+    }
 
     // 5) CUDA info (best-effort)
     ohmy::system::print_cuda_info(logger);

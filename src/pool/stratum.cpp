@@ -1,6 +1,8 @@
 #include <ohmy/pool/stratum.hpp>
 
 #include <asio/io_context.hpp>
+#include <asio/ip/tcp.hpp>
+#include <asio/connect.hpp>
 
 using namespace std::literals;
 
@@ -40,6 +42,24 @@ void StratumClient::run_io_() {
 void StratumClient::connect_and_handshake_() {
     // Placeholder: networking to be implemented next iteration.
     log_.info("Stratum: connect_and_handshake() not yet implemented");
+}
+
+bool StratumClient::probe_connect() {
+    try {
+        asio::io_context ioc;
+        asio::ip::tcp::resolver resolver{ioc};
+        asio::ip::tcp::socket socket{ioc};
+        log_.info(std::string("Stratum probe: resolving ") + opts_.host + ":" + opts_.port);
+        auto results = resolver.resolve(opts_.host, opts_.port);
+        log_.info("Stratum probe: connecting...");
+        asio::connect(socket, results);
+        log_.info("Stratum probe: connected");
+        socket.close();
+        return true;
+    } catch (const std::exception& e) {
+        log_.error(std::string("Stratum probe failed: ") + e.what());
+        return false;
+    }
 }
 
 } // namespace ohmy::pool
