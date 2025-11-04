@@ -7,7 +7,6 @@
 #include <ohmy/logging/logger.hpp>
 
 namespace asio { class io_context; }
-namespace asio::ip { class tcp; }
 
 namespace ohmy::pool {
 
@@ -17,6 +16,14 @@ struct StratumOptions {
     std::string user;
     std::string pass;
     std::string client{ "ohmy-miner/" OHMY_MINER_VERSION };
+};
+
+// Result of handshake (subscribe + authorize)
+struct HandshakeResult {
+    bool success{false};
+    std::string extranonce1;
+    int extranonce2_size{0};
+    std::string error_msg;
 };
 
 class StratumClient {

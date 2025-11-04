@@ -18,6 +18,161 @@ using json = nlohmann::json;
 
 namespace ohmy::pool {
 
+// Internal helper: perform Stratum handshake (subscribe + authorize)
+// Calls on_complete with result when done (or on timeout/error)
+static void do_handshake_async(ohmy::logging::Logger& log,
+                               const StratumOptions& opts,
+                               asio::ip::tcp::socket& socket,
+                               std::atomic<bool>& timed_out,
+                               std::function<void(HandshakeResult)> on_complete) {
+    // Send mining.subscribe
+    auto sub_line = stratum_messages::build_subscribe(opts.client, 1);
+    log.info("Sending subscribe...");
+    
+    asio::async_write(socket, asio::buffer(sub_line),
+        [&log, &opts, &socket, &timed_out, on_complete](const std::error_code& ec, std::size_t){
+            if (ec) {
+                if (!timed_out.load()) {
+                    HandshakeResult result;
+                    result.error_msg = "write subscribe: " + ec.message();
+                    on_complete(result);
+                }
+                return;
+            }
+            
+            // Read subscribe response
+            auto buf = std::make_shared<asio::streambuf>();
+            asio::async_read_until(socket, *buf, '\n',
+                [&log, &opts, &socket, &timed_out, on_complete, buf](const std::error_code& ec, std::size_t){
+                    if (ec) {
+                        if (!timed_out.load()) {
+                            HandshakeResult result;
+                            result.error_msg = "read subscribe: " + ec.message();
+                            on_complete(result);
+                        }
+                        return;
+                    }
+                    
+                    std::istream is(buf.get());
+                    std::string line;
+                    std::getline(is, line);
+                    log.info(std::string("Received: ") + line);
+                    
+                    try {
+                        auto j = json::parse(line);
+                        if (j.contains("error") && !j["error"].is_null()) {
+                            log.error(std::string("Subscribe error: ") + j["error"].dump());
+                            HandshakeResult result;
+                            result.error_msg = "subscribe returned error";
+                            on_complete(result);
+                            return;
+                        }
+                        if (j.contains("result") && j["result"].is_array() && j["result"].size() >= 3) {
+                            std::string extranonce1 = j["result"][1].get<std::string>();
+                            int extranonce2_size = j["result"][2].get<int>();
+                            log.info(std::string("Subscribe OK: extranonce1=") + extranonce1
+                                      + ", extranonce2_size=" + std::to_string(extranonce2_size));
+                            
+                            // Now send authorize
+                            auto auth_line = stratum_messages::build_authorize(opts.user, opts.pass, 2);
+                            log.info("Sending authorize...");
+                            
+                            asio::async_write(socket, asio::buffer(auth_line),
+                                [&log, &socket, &timed_out, on_complete, extranonce1, extranonce2_size]
+                                (const std::error_code& ec, std::size_t){
+                                    if (ec) {
+                                        if (!timed_out.load()) {
+                                            HandshakeResult result;
+                                            result.error_msg = "write authorize: " + ec.message();
+                                            on_complete(result);
+                                        }
+                                        return;
+                                    }
+                                    
+                                    // Read authorize response (may need to skip unsolicited messages)
+                                    auto buf2 = std::make_shared<asio::streambuf>();
+                                    auto read_next = std::make_shared<std::function<void()>>();
+                                    
+                                    *read_next = [&log, &socket, &timed_out, on_complete, 
+                                                  extranonce1, extranonce2_size, buf2, read_next](){
+                                        asio::async_read_until(socket, *buf2, '\n',
+                                            [&log, &timed_out, on_complete, extranonce1, extranonce2_size, 
+                                             buf2, read_next](const std::error_code& ec, std::size_t){
+                                                if (ec) {
+                                                    if (!timed_out.load()) {
+                                                        HandshakeResult result;
+                                                        result.error_msg = "read authorize: " + ec.message();
+                                                        on_complete(result);
+                                                    }
+                                                    return;
+                                                }
+                                                
+                                                std::istream is2(buf2.get());
+                                                std::string line2;
+                                                std::getline(is2, line2);
+                                                log.info(std::string("<- ") + line2);
+                                                
+                                                try {
+                                                    auto j2 = json::parse(line2);
+                                                    if (j2.contains("id") && j2["id"].is_number_integer() && 
+                                                        j2["id"].get<int>() == 2) {
+                                                        // This is the authorize response
+                                                        if (j2.contains("error") && !j2["error"].is_null()) {
+                                                            log.error(std::string("Authorize error: ") + j2["error"].dump());
+                                                            HandshakeResult result;
+                                                            result.error_msg = "authorize returned error";
+                                                            on_complete(result);
+                                                            return;
+                                                        }
+                                                        if (j2.contains("result") && j2["result"].is_boolean() && 
+                                                            j2["result"].get<bool>()) {
+                                                            log.info("Authorize OK");
+                                                            HandshakeResult result;
+                                                            result.success = true;
+                                                            result.extranonce1 = extranonce1;
+                                                            result.extranonce2_size = extranonce2_size;
+                                                            on_complete(result);
+                                                        } else {
+                                                            log.error("Authorize: result is not true");
+                                                            HandshakeResult result;
+                                                            result.error_msg = "authorize result failed";
+                                                            on_complete(result);
+                                                        }
+                                                    } else {
+                                                        // Not the authorize response, read next
+                                                        log.debug("Ignoring unsolicited message, reading next...");
+                                                        (*read_next)();
+                                                    }
+                                                } catch (const json::exception& e) {
+                                                    log.error(std::string("Parse error: ") + e.what());
+                                                    HandshakeResult result;
+                                                    result.error_msg = "JSON parse: " + std::string(e.what());
+                                                    on_complete(result);
+                                                }
+                                            }
+                                        );
+                                    };
+                                    (*read_next)();
+                                }
+                            );
+                        } else {
+                            log.error("Subscribe: unexpected result format");
+                            HandshakeResult result;
+                            result.error_msg = "subscribe result invalid";
+                            on_complete(result);
+                        }
+                    } catch (const json::exception& e) {
+                        log.error(std::string("Subscribe parse error: ") + e.what());
+                        HandshakeResult result;
+                        result.error_msg = "JSON parse: " + std::string(e.what());
+                        on_complete(result);
+                    }
+                }
+            );
+        }
+    );
+}
+
 StratumClient::StratumClient(ohmy::logging::Logger& log, StratumOptions opts)
     : log_(log), opts_(std::move(opts)) {}
 
@@ -55,14 +210,12 @@ void StratumClient::connect_and_handshake_() {
 }
 
 bool StratumClient::probe_connect() {
-    // Implement a short timeout (3s) using async resolve/connect + steady_timer.
     try {
         asio::io_context ioc;
         asio::ip::tcp::resolver resolver{ioc};
         asio::ip::tcp::socket socket{ioc};
         asio::steady_timer timer{ioc};
 
-        using namespace std::chrono_literals;
         const auto timeout = 3s;
         std::atomic<bool> timed_out{false};
         std::atomic<bool> success{false};
@@ -70,139 +223,43 @@ bool StratumClient::probe_connect() {
 
         log_.info(std::string("Stratum probe: resolving ") + opts_.host + ":" + opts_.port);
 
-        // Timer handler: on timeout, cancel resolver and close socket to abort connect
+        // Setup timeout
         timer.expires_after(timeout);
         timer.async_wait([&](const std::error_code& ec){
-            if (ec) return; // timer cancelled
+            if (ec) return;
             timed_out.store(true);
             std::error_code ignored;
             resolver.cancel();
             socket.close(ignored);
         });
 
-        // Resolve asynchronously
+        // Resolve and connect
         resolver.async_resolve(opts_.host, opts_.port,
             [&](const std::error_code& ec, asio::ip::tcp::resolver::results_type results){
                 if (ec) {
-                    if (!timed_out.load()) err_msg = std::string("resolve: ") + ec.message();
-                    return; // let io_context finish
+                    if (!timed_out.load()) err_msg = "resolve: " + ec.message();
+                    return;
                 }
                 log_.info("Stratum probe: connecting...");
                 asio::async_connect(socket, results,
                     [&](const std::error_code& ec2, const asio::ip::tcp::endpoint&){
-                        if (!ec2) {
-                            log_.info("Stratum probe: connected, sending subscribe...");
-                            // Send mining.subscribe
-                            auto sub_line = stratum_messages::build_subscribe(opts_.client, 1);
-                            asio::async_write(socket, asio::buffer(sub_line),
-                                [&](const std::error_code& ec_write, std::size_t){
-                                    if (ec_write) {
-                                        if (!timed_out.load()) err_msg = std::string("write: ") + ec_write.message();
-                                        return;
-                                    }
-                                    log_.info("Stratum probe: subscribe sent, reading response...");
-                                    // Read one line
-                                    auto buf = std::make_shared<asio::streambuf>();
-                                    asio::async_read_until(socket, *buf, '\n',
-                                        [&, buf](const std::error_code& ec_read, std::size_t){
-                                            if (!ec_read) {
-                                                std::istream is(buf.get());
-                                                std::string line;
-                                                std::getline(is, line);
-                                                log_.info(std::string("Stratum probe: received: ") + line);
-                                                
-                                                // Parse subscribe response
-                                                try {
-                                                    auto j = json::parse(line);
-                                                    if (j.contains("error") && !j["error"].is_null()) {
-                                                        log_.error(std::string("Stratum subscribe error: ") + j["error"].dump());
-                                                        err_msg = "subscribe returned error";
-                                                        return;
-                                                    }
-                                                    if (j.contains("result") && j["result"].is_array() && j["result"].size() >= 3) {
-                                                        auto& result = j["result"];
-                                                        std::string extranonce1 = result[1].get<std::string>();
-                                                        int extranonce2_size = result[2].get<int>();
-                                                        log_.info(std::string("Stratum subscribe OK: extranonce1=") + extranonce1 
-                                                                  + ", extranonce2_size=" + std::to_string(extranonce2_size));
-                                                        
-                                                        // Now send mining.authorize
-                                                        log_.info("Stratum probe: sending authorize...");
-                                                        auto auth_line = stratum_messages::build_authorize(opts_.user, opts_.pass, 2);
-                                                        asio::async_write(socket, asio::buffer(auth_line),
-                                                            [&](const std::error_code& ec_write2, std::size_t){
-                                                                if (ec_write2) {
-                                                                    if (!timed_out.load()) err_msg = std::string("write authorize: ") + ec_write2.message();
-                                                                    return;
-                                                                }
-                                                                log_.info("Stratum probe: authorize sent, reading response...");
-                                                                // Pool may send unsolicited messages first; read lines until we get id=2
-                                                                auto buf2 = std::make_shared<asio::streambuf>();
-                                                                auto read_next = std::make_shared<std::function<void()>>();
-                                                                *read_next = [&, buf2, read_next](){
-                                                                    asio::async_read_until(socket, *buf2, '\n',
-                                                                        [&, buf2, read_next](const std::error_code& ec_read2, std::size_t){
-                                                                            if (!ec_read2) {
-                                                                                std::istream is2(buf2.get());
-                                                                                std::string line2;
-                                                                                std::getline(is2, line2);
-                                                                                log_.info(std::string("Stratum probe: <- ") + line2);
-                                                                                
-                                                                                try {
-                                                                                    auto j2 = json::parse(line2);
-                                                                                    // Check if this is the authorize response (id=2)
-                                                                                    if (j2.contains("id") && j2["id"].is_number_integer() && j2["id"].get<int>() == 2) {
-                                                                                        if (j2.contains("error") && !j2["error"].is_null()) {
-                                                                                            log_.error(std::string("Stratum authorize error: ") + j2["error"].dump());
-                                                                                            err_msg = "authorize returned error";
-                                                                                            return;
-                                                                                        }
-                                                                                        if (j2.contains("result") && j2["result"].is_boolean() && j2["result"].get<bool>()) {
-                                                                                            log_.info("Stratum authorize OK");
-                                                                                            success.store(true);
-                                                                                            std::error_code ignored;
-                                                                                            timer.cancel(ignored);
-                                                                                            socket.close(ignored);
-                                                                                        } else {
-                                                                                            log_.error("Stratum authorize: result is not true");
-                                                                                            err_msg = "authorize result failed";
-                                                                                        }
-                                                                                    } else {
-                                                                                        // Not the authorize response; read next line
-                                                                                        log_.debug("Stratum probe: ignoring unsolicited message, reading next...");
-                                                                                        (*read_next)();
-                                                                                    }
-                                                                                } catch (const json::exception& e) {
-                                                                                    log_.error(std::string("Stratum parse error: ") + e.what());
-                                                                                    err_msg = std::string("JSON parse: ") + e.what();
-                                                                                }
-                                                                            } else if (!timed_out.load()) {
-                                                                                err_msg = std::string("read authorize: ") + ec_read2.message();
-                                                                            }
-                                                                        }
-                                                                    );
-                                                                };
-                                                                (*read_next)();
-                                                            }
-                                                        );
-                                                    } else {
-                                                        log_.error("Stratum subscribe: unexpected result format");
-                                                        err_msg = "subscribe result format invalid";
-                                                    }
-                                                } catch (const json::exception& e) {
-                                                    log_.error(std::string("Stratum subscribe parse error: ") + e.what());
-                                                    err_msg = std::string("JSON parse: ") + e.what();
-                                                }
-                                            } else if (!timed_out.load()) {
-                                                err_msg = std::string("read: ") + ec_read.message();
-                                            }
-                                        }
-                                    );
-                                }
-                            );
-                        } else if (!timed_out.load()) {
-                            err_msg = std::string("connect: ") + ec2.message();
+                        if (ec2) {
+                            if (!timed_out.load()) err_msg = "connect: " + ec2.message();
+                            return;
                         }
+                        log_.info("Stratum probe: connected");
+                        
+                        // Perform handshake (subscribe + authorize)
+                        do_handshake_async(log_, opts_, socket, timed_out, [&](HandshakeResult result){
+                            if (result.success) {
+                                success.store(true);
+                                std::error_code ignored;
+                                timer.cancel(ignored);
+                                socket.close(ignored);
+                            } else {
+                                if (!timed_out.load()) err_msg = result.error_msg;
+                            }
+                        });
                     }
                 );
             }
@@ -217,7 +274,8 @@ bool StratumClient::probe_connect() {
         if (timed_out.load()) {
             log_.error("Stratum probe failed: timeout (3s)");
         } else {
-            log_.error(std::string("Stratum probe failed: ") + (err_msg.empty() ? "unknown" : err_msg));
+            log_.error(std::string("Stratum probe failed: ") + 
+                      (err_msg.empty() ? "unknown" : err_msg));
         }
         return false;
     } catch (const std::exception& e) {
