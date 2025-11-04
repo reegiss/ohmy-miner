@@ -13,6 +13,15 @@ Makefile
 *.suo
 *.ws/
 
+# Local logs and profiling outputs
+logs/
+*.ncu-rep
+*.qdrep
+*.nsys-rep
+
+# Compilation database (optional)
+compile_commands.json
+
 # Compiled Object files
 *.slo
 *.lo

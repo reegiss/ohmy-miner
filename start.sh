@@ -26,7 +26,7 @@ echo "[run ] Starting miner..."
 timestamp="$(date +%Y%m%d-%H%M%S)"
 log_file="${SCRIPT_DIR}/logs/miner-${timestamp}.log"
 
-cmd=("./ohmy-miner" "--algo" "$OMM_ALGO" "--url" "$OMM_URL" "--user" "$OMM_USER" "--pass" "$OMM_PASS" "--diff" "$OMM_DIFF")
+cmd=("./ohmy-miner" "--algo" "$OMM_ALGO" "--url" "$OMM_URL" "--user" "$OMM_USER" "--pass" "$OMM_PASS")
 
 if [[ -n "${OMM_TIMEOUT}" ]]; then
     echo "[run ] Timeout enabled: ${OMM_TIMEOUT}s"
