@@ -124,10 +124,66 @@ bool StratumClient::probe_connect() {
                                                         int extranonce2_size = result[2].get<int>();
                                                         log_.info(std::string("Stratum subscribe OK: extranonce1=") + extranonce1 
                                                                   + ", extranonce2_size=" + std::to_string(extranonce2_size));
-                                                        success.store(true);
-                                                        std::error_code ignored;
-                                                        timer.cancel(ignored);
-                                                        socket.close(ignored);
+                                                        
+                                                        // Now send mining.authorize
+                                                        log_.info("Stratum probe: sending authorize...");
+                                                        auto auth_line = stratum_messages::build_authorize(opts_.user, opts_.pass, 2);
+                                                        asio::async_write(socket, asio::buffer(auth_line),
+                                                            [&](const std::error_code& ec_write2, std::size_t){
+                                                                if (ec_write2) {
+                                                                    if (!timed_out.load()) err_msg = std::string("write authorize: ") + ec_write2.message();
+                                                                    return;
+                                                                }
+                                                                log_.info("Stratum probe: authorize sent, reading response...");
+                                                                // Pool may send unsolicited messages first; read lines until we get id=2
+                                                                auto buf2 = std::make_shared<asio::streambuf>();
+                                                                auto read_next = std::make_shared<std::function<void()>>();
+                                                                *read_next = [&, buf2, read_next](){
+                                                                    asio::async_read_until(socket, *buf2, '\n',
+                                                                        [&, buf2, read_next](const std::error_code& ec_read2, std::size_t){
+                                                                            if (!ec_read2) {
+                                                                                std::istream is2(buf2.get());
+                                                                                std::string line2;
+                                                                                std::getline(is2, line2);
+                                                                                log_.info(std::string("Stratum probe: <- ") + line2);
+                                                                                
+                                                                                try {
+                                                                                    auto j2 = json::parse(line2);
+                                                                                    // Check if this is the authorize response (id=2)
+                                                                                    if (j2.contains("id") && j2["id"].is_number_integer() && j2["id"].get<int>() == 2) {
+                                                                                        if (j2.contains("error") && !j2["error"].is_null()) {
+                                                                                            log_.error(std::string("Stratum authorize error: ") + j2["error"].dump());
+                                                                                            err_msg = "authorize returned error";
+                                                                                            return;
+                                                                                        }
+                                                                                        if (j2.contains("result") && j2["result"].is_boolean() && j2["result"].get<bool>()) {
+                                                                                            log_.info("Stratum authorize OK");
+                                                                                            success.store(true);
+                                                                                            std::error_code ignored;
+                                                                                            timer.cancel(ignored);
+                                                                                            socket.close(ignored);
+                                                                                        } else {
+                                                                                            log_.error("Stratum authorize: result is not true");
+                                                                                            err_msg = "authorize result failed";
+                                                                                        }
+                                                                                    } else {
+                                                                                        // Not the authorize response; read next line
+                                                                                        log_.debug("Stratum probe: ignoring unsolicited message, reading next...");
+                                                                                        (*read_next)();
+                                                                                    }
+                                                                                } catch (const json::exception& e) {
+                                                                                    log_.error(std::string("Stratum parse error: ") + e.what());
+                                                                                    err_msg = std::string("JSON parse: ") + e.what();
+                                                                                }
+                                                                            } else if (!timed_out.load()) {
+                                                                                err_msg = std::string("read authorize: ") + ec_read2.message();
+                                                                            }
+                                                                        }
+                                                                    );
+                                                                };
+                                                                (*read_next)();
+                                                            }
+                                                        );
                                                     } else {
                                                         log_.error("Stratum subscribe: unexpected result format");
                                                         err_msg = "subscribe result format invalid";
