@@ -66,6 +66,8 @@ add_executable(ohmy-miner
   src/config/validator.cpp
   src/system/cuda.cpp
   src/logging/fmt_logger.cpp
+  src/pool/stratum.cpp
+  src/pool/stratum_messages.cpp
 )
 
 # Enable CUDA for the target
@@ -116,4 +118,14 @@ if (BUILD_TESTING)
   # Verify without --debug no DEBUG lines are printed
   add_test(NAME ohmy_no_debug COMMAND ohmy-miner --config ${CMAKE_SOURCE_DIR}/tests/config/miner-valid.json)
   set_tests_properties(ohmy_no_debug PROPERTIES FAIL_REGULAR_EXPRESSION "DEBUG")
+  # Stratum message builder tool
+  add_executable(test_stratum_messages tests/tools/test_stratum_messages.cpp)
+  target_link_libraries(test_stratum_messages PRIVATE fmt::fmt)
+  target_sources(test_stratum_messages PRIVATE src/pool/stratum_messages.cpp)
+  target_include_directories(test_stratum_messages PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+    ${json_SOURCE_DIR}/include
+  )
+  add_test(NAME test_stratum_messages COMMAND test_stratum_messages)
+  set_tests_properties(test_stratum_messages PROPERTIES PASS_REGULAR_EXPRESSION "mining.subscribe|mining.authorize")
 endif()

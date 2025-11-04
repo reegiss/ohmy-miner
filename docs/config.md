@@ -53,3 +53,9 @@ pass=x
 
 - Use `--debug` (ou `-d`) para habilitar logs no nível DEBUG.
 - O modo debug é somente via CLI e não faz parte do arquivo de configuração.
+
+## Conexão com pool (Stratum v1)
+
+- Use `--url host:port`, `--user` e `--pass` para autenticar na pool.
+- A conexão Stratum v1 será implementada em etapas: subscribe → authorize → receber jobs (`mining.notify`).
+- Por enquanto, esta funcionalidade está em desenvolvimento e pode mudar.
