@@ -1,0 +1,6 @@
+{
+  "algo": "foo",               
+  "url": "badurl",            
+  "user": 123,                 
+  "pass": ["x"]               
+}
