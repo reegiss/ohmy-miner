@@ -4,9 +4,11 @@
  * GPL-3.0-only
  */
 
-#include <iostream>
-#include <string>
 #include <optional>
+#include <string>
+
+#include <cxxopts.hpp>
+#include <fmt/core.h>
 
 struct CmdArgs {
     std::string algo;
@@ -15,47 +17,43 @@ struct CmdArgs {
     std::string pass{"x"};
 };
 
-static void print_usage(const char* prog) {
-    std::cout << "Usage: " << prog << " --algo qhash --url host:port --user WALLET[.RIG] --pass x\n\n"
-              << "Options:\n"
-              << "  --algo qhash            Mining algorithm (only 'qhash' supported)\n"
-              << "  --url HOST:PORT         Pool URL (e.g., qubitcoin.luckypool.io:8610)\n"
-              << "  --user WALLET[.RIG]     Wallet address and optional rig name\n"
-              << "  --pass PASSWORD         Pool password (default: x)\n"
-              << std::endl;
-}
-
 static std::optional<CmdArgs> parse_args(int argc, char** argv) {
-    CmdArgs args;
-    for (int i = 1; i < argc; ++i) {
-        std::string a = argv[i];
-        auto next = [&]() -> std::string {
-            if (i + 1 < argc) return std::string(argv[++i]);
-            return {};
-        };
-        if (a == "--algo") {
-            args.algo = next();
-        } else if (a == "--url") {
-            args.url = next();
-        } else if (a == "--user") {
-            args.user = next();
-        } else if (a == "--pass") {
-            args.pass = next();
-        } else if (a == "--help" || a == "-h") {
-            print_usage(argv[0]);
-            return std::nullopt;
-        } else {
-            std::cerr << "Unknown option: " << a << "\n";
-            print_usage(argv[0]);
+    cxxopts::Options options("ohmy-miner", "GPU miner for Qubitcoin (qhash)");
+    // clang-format off
+    options.add_options()
+        ("algo", "Mining algorithm (only 'qhash' supported)", cxxopts::value<std::string>()->default_value("qhash"))
+        ("url",  "Pool URL (host:port)", cxxopts::value<std::string>())
+        ("user", "Wallet[.RIG]", cxxopts::value<std::string>())
+        ("pass", "Pool password", cxxopts::value<std::string>()->default_value("x"))
+        ("v,version", "Show version and exit")
+        ("h,help",    "Show help and exit");
+    // clang-format on
+
+    CmdArgs out;
+    try {
+        auto result = options.parse(argc, argv);
+        if (result.count("help")) {
+            fmt::print("{}\n", options.help());
             return std::nullopt;
         }
-    }
-    if (args.algo != "qhash" || args.url.empty() || args.user.empty()) {
-        std::cerr << "Missing or invalid required options.\n";
-        print_usage(argv[0]);
+        if (result.count("version")) {
+            fmt::print("ohmy-miner v{}\n", OHMY_MINER_VERSION);
+            return std::nullopt;
+        }
+        out.algo = result["algo"].as<std::string>();
+        out.url  = result.count("url") ? result["url"].as<std::string>() : std::string{};
+        out.user = result.count("user") ? result["user"].as<std::string>() : std::string{};
+        out.pass = result["pass"].as<std::string>();
+    } catch (const std::exception& e) {
+        fmt::print(stderr, "Argument error: {}\n\n{}\n", e.what(), options.help());
         return std::nullopt;
     }
-    return args;
+
+    if (out.algo != "qhash" || out.url.empty() || out.user.empty()) {
+        fmt::print(stderr, "Missing or invalid required options.\n\n{}\n", options.help());
+        return std::nullopt;
+    }
+    return out;
 }
 
 int main(int argc, char** argv) {
@@ -65,12 +63,12 @@ int main(int argc, char** argv) {
     }
     const auto& args = *parsed;
 
-    std::cout << "ohmy-miner starting...\n"
-              << "  algo    : " << args.algo << "\n"
-              << "  url     : " << args.url << "\n"
-              << "  user    : " << args.user << "\n"
-              << "  pass    : " << args.pass << "\n"
-              << "(bootstrap mode: networking and CUDA kernels to be added)\n";
+    fmt::print("ohmy-miner v{}\n", OHMY_MINER_VERSION);
+    fmt::print("  algo    : {}\n", args.algo);
+    fmt::print("  url     : {}\n", args.url);
+    fmt::print("  user    : {}\n", args.user);
+    fmt::print("  pass    : {}\n", args.pass);
+    fmt::print("(bootstrap mode: networking and CUDA kernels to be added)\n");
 
     // TODO: initialize CUDA, connect to pool (Stratum), start mining workers
 
