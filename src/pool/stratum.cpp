@@ -10,7 +10,10 @@
 #include <asio/write.hpp>
 #include <asio/streambuf.hpp>
 
+#include <nlohmann/json.hpp>
+
 using namespace std::literals;
+using json = nlohmann::json;
 
 namespace ohmy::pool {
 
@@ -106,10 +109,33 @@ bool StratumClient::probe_connect() {
                                                 std::string line;
                                                 std::getline(is, line);
                                                 log_.info(std::string("Stratum probe: received: ") + line);
-                                                success.store(true);
-                                                std::error_code ignored;
-                                                timer.cancel(ignored);
-                                                socket.close(ignored);
+                                                
+                                                // Parse subscribe response
+                                                try {
+                                                    auto j = json::parse(line);
+                                                    if (j.contains("error") && !j["error"].is_null()) {
+                                                        log_.error(std::string("Stratum subscribe error: ") + j["error"].dump());
+                                                        err_msg = "subscribe returned error";
+                                                        return;
+                                                    }
+                                                    if (j.contains("result") && j["result"].is_array() && j["result"].size() >= 3) {
+                                                        auto& result = j["result"];
+                                                        std::string extranonce1 = result[1].get<std::string>();
+                                                        int extranonce2_size = result[2].get<int>();
+                                                        log_.info(std::string("Stratum subscribe OK: extranonce1=") + extranonce1 
+                                                                  + ", extranonce2_size=" + std::to_string(extranonce2_size));
+                                                        success.store(true);
+                                                        std::error_code ignored;
+                                                        timer.cancel(ignored);
+                                                        socket.close(ignored);
+                                                    } else {
+                                                        log_.error("Stratum subscribe: unexpected result format");
+                                                        err_msg = "subscribe result format invalid";
+                                                    }
+                                                } catch (const json::exception& e) {
+                                                    log_.error(std::string("Stratum subscribe parse error: ") + e.what());
+                                                    err_msg = std::string("JSON parse: ") + e.what();
+                                                }
                                             } else if (!timed_out.load()) {
                                                 err_msg = std::string("read: ") + ec_read.message();
                                             }
