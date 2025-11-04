@@ -48,3 +48,8 @@ pass=x
 - Para testes rápidos, você pode usar `start.sh` e sobrescrever via env:
   - `OMM_URL`, `OMM_USER`, `OMM_PASS`, `OMM_ALGO`.
 - Em produção, prefira o JSON para validações mais seguras.
+
+## Logs e modo debug
+
+- Use `--debug` (ou `-d`) para habilitar logs no nível DEBUG.
+- O modo debug é somente via CLI e não faz parte do arquivo de configuração.
