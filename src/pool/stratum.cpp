@@ -1,10 +1,14 @@
 #include <ohmy/pool/stratum.hpp>
+#include <ohmy/pool/stratum_messages.hpp>
 
 #include <asio/io_context.hpp>
 #include <asio/ip/tcp.hpp>
 #include <asio/connect.hpp>
 #include <asio/steady_timer.hpp>
 #include <asio/error.hpp>
+#include <asio/read_until.hpp>
+#include <asio/write.hpp>
+#include <asio/streambuf.hpp>
 
 using namespace std::literals;
 
@@ -83,9 +87,36 @@ bool StratumClient::probe_connect() {
                 asio::async_connect(socket, results,
                     [&](const std::error_code& ec2, const asio::ip::tcp::endpoint&){
                         if (!ec2) {
-                            success.store(true);
-                            std::error_code ignored;
-                            timer.cancel(ignored);
+                            log_.info("Stratum probe: connected, sending subscribe...");
+                            // Send mining.subscribe
+                            auto sub_line = stratum_messages::build_subscribe(opts_.client, 1);
+                            asio::async_write(socket, asio::buffer(sub_line),
+                                [&](const std::error_code& ec_write, std::size_t){
+                                    if (ec_write) {
+                                        if (!timed_out.load()) err_msg = std::string("write: ") + ec_write.message();
+                                        return;
+                                    }
+                                    log_.info("Stratum probe: subscribe sent, reading response...");
+                                    // Read one line
+                                    auto buf = std::make_shared<asio::streambuf>();
+                                    asio::async_read_until(socket, *buf, '\n',
+                                        [&, buf](const std::error_code& ec_read, std::size_t){
+                                            if (!ec_read) {
+                                                std::istream is(buf.get());
+                                                std::string line;
+                                                std::getline(is, line);
+                                                log_.info(std::string("Stratum probe: received: ") + line);
+                                                success.store(true);
+                                                std::error_code ignored;
+                                                timer.cancel(ignored);
+                                                socket.close(ignored);
+                                            } else if (!timed_out.load()) {
+                                                err_msg = std::string("read: ") + ec_read.message();
+                                            }
+                                        }
+                                    );
+                                }
+                            );
                         } else if (!timed_out.load()) {
                             err_msg = std::string("connect: ") + ec2.message();
                         }
@@ -97,7 +128,7 @@ bool StratumClient::probe_connect() {
         ioc.run();
 
         if (success.load()) {
-            log_.info("Stratum probe: connected");
+            log_.info("Stratum probe: handshake complete");
             return true;
         }
         if (timed_out.load()) {
