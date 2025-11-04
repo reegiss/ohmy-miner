@@ -93,3 +93,10 @@ target_link_libraries(ohmy-miner PRIVATE Threads::Threads)
 
 # Installation (optional)
 install(TARGETS ohmy-miner RUNTIME DESTINATION bin)
+
+# Tests: simple CTest smoke checks
+include(CTest)
+if (BUILD_TESTING)
+  add_test(NAME ohmy_version COMMAND ohmy-miner --version)
+  add_test(NAME ohmy_help    COMMAND ohmy-miner --help)
+endif()
