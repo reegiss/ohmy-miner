@@ -163,4 +163,27 @@ if (BUILD_TESTING)
     ${json_SOURCE_DIR}/include
   )
   add_test(NAME unit_mining_job COMMAND test_mining_job_unit)
+  
+  # SHA256 CUDA device tests
+  add_executable(test_sha256_device tests/unit/test_sha256_device.cu)
+  set_target_properties(test_sha256_device PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
+  )
+  target_link_libraries(test_sha256_device PRIVATE doctest::doctest CUDA::cudart)
+  target_include_directories(test_sha256_device PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+  )
+  add_test(NAME unit_sha256_device COMMAND test_sha256_device)
+  
+  # SHA256 CUDA benchmark
+  add_executable(bench_sha256_device tests/benchmark/bench_sha256_device.cu)
+  set_target_properties(bench_sha256_device PROPERTIES
+    CUDA_SEPARABLE_COMPILATION ON
+    CUDA_ARCHITECTURES "${CMAKE_CUDA_ARCHITECTURES}"
+  )
+  target_link_libraries(bench_sha256_device PRIVATE fmt::fmt CUDA::cudart)
+  target_include_directories(bench_sha256_device PRIVATE
+    ${CMAKE_SOURCE_DIR}/include
+  )
 endif()
