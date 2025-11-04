@@ -110,4 +110,7 @@ if (BUILD_TESTING)
   set_tests_properties(ohmy_config_invalid PROPERTIES WILL_FAIL TRUE)
   add_test(NAME ohmy_config_badport COMMAND ohmy-miner --config ${CMAKE_SOURCE_DIR}/tests/config/miner-badport.json)
   set_tests_properties(ohmy_config_badport PROPERTIES WILL_FAIL TRUE)
+  # Verify --debug enables DEBUG lines in stdout and exits 0
+  add_test(NAME ohmy_debug COMMAND ohmy-miner --debug --config ${CMAKE_SOURCE_DIR}/tests/config/miner-valid.json)
+  set_tests_properties(ohmy_debug PROPERTIES PASS_REGULAR_EXPRESSION "DEBUG")
 endif()
