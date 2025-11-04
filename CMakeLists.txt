@@ -61,6 +61,10 @@ FetchContent_Populate(fpm)
 # Source
 add_executable(ohmy-miner
   src/main.cpp
+  src/cli/args.cpp
+  src/config/loader.cpp
+  src/config/validator.cpp
+  src/system/cuda.cpp
 )
 
 # Enable CUDA for the target
@@ -81,6 +85,7 @@ target_link_libraries(ohmy-miner PRIVATE fmt::fmt)
 
 # Header-only deps include dirs
 target_include_directories(ohmy-miner PRIVATE
+  ${CMAKE_SOURCE_DIR}/include
   ${cxxopts_SOURCE_DIR}/include
   ${json_SOURCE_DIR}/include
   ${asio_SOURCE_DIR}/asio/include

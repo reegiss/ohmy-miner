@@ -3,246 +3,44 @@
  * Copyright (C) 2025 Regis Araujo Melo
  * GPL-3.0-only
  */
+// Keep main minimal by delegating responsibilities to separate modules
 
-#include <optional>
-#include <string>
-#include <cstdlib>
-#include <fstream>
-#include <sstream>
-#include <vector>
-#include <cctype>
-#include <limits>
-
-#include <cxxopts.hpp>
 #include <fmt/core.h>
-#include <nlohmann/json.hpp>
-#include <cuda_runtime.h>
 
-struct CmdArgs {
-    std::string algo;
-    std::string url;
-    std::string user;
-    std::string pass{"x"};
-};
-
-struct ParseResult {
-    std::optional<CmdArgs> args; // present when we should continue
-    bool show_only{false};       // true if --help/--version printed
-};
-
-// Basic hostname validation: labels [A-Za-z0-9-], 1..63, not start/end with '-',
-// labels separated by '.', total length <= 253.
-static bool is_valid_hostname(const std::string& host, std::string& err) {
-    if (host.empty()) { err = "hostname vazio"; return false; }
-    if (host.size() > 253) { err = "hostname muito longo (>253)"; return false; }
-    std::size_t start = 0;
-    while (start < host.size()) {
-        auto dot = host.find('.', start);
-        std::size_t end = (dot == std::string::npos) ? host.size() : dot;
-        std::size_t len = end - start;
-        if (len == 0) { err = "label de hostname vazia"; return false; }
-        if (len > 63) { err = "label do hostname muito longa (>63)"; return false; }
-        if (host[start] == '-' || host[end-1] == '-') { err = "label do hostname não pode começar/terminar com '-'"; return false; }
-        for (std::size_t i = start; i < end; ++i) {
-            char c = host[i];
-            if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '-')) {
-                err = "hostname contém caracteres inválidos"; return false; }
-        }
-        if (dot == std::string::npos) break;
-        start = dot + 1;
-    }
-    return true;
-}
-
-static bool validate_host_port(const std::string& url, std::string& err) {
-    auto pos = url.rfind(':');
-    if (pos == std::string::npos || pos == url.size() - 1) {
-        err = "url deve ser no formato host:port"; return false; }
-    std::string host = url.substr(0, pos);
-    std::string port_s = url.substr(pos + 1);
-    if (!std::all_of(port_s.begin(), port_s.end(), ::isdigit)) {
-        err = "porta em url deve conter apenas dígitos"; return false; }
-    // Port range 1..65535
-    unsigned long port = 0;
-    try {
-        port = std::stoul(port_s);
-    } catch (...) {
-        err = "porta inválida"; return false;
-    }
-    if (port == 0 || port > 65535UL) {
-        err = "porta fora do intervalo (1-65535)"; return false; }
-    if (!is_valid_hostname(host, err)) return false;
-    return true;
-}
-
-static void apply_env_overrides(CmdArgs& cfg) {
-    if (const char* v = std::getenv("OMM_ALGO")) cfg.algo = v;
-    if (const char* v = std::getenv("OMM_URL"))  cfg.url  = v;
-    if (const char* v = std::getenv("OMM_USER")) cfg.user = v;
-    if (const char* v = std::getenv("OMM_PASS")) cfg.pass = v;
-}
-
-static void apply_config_file(CmdArgs& cfg, const std::string& path = "miner.conf") {
-    std::ifstream in(path);
-    if (!in.good()) return; // optional
-    // Read whole file
-    std::stringstream buffer; buffer << in.rdbuf();
-    std::string text = buffer.str();
-    // Trim leading spaces
-    auto first_non_space = text.find_first_not_of(" \t\n\r");
-    if (first_non_space == std::string::npos) return;
-    if (text[first_non_space] == '{') {
-        // JSON format with light schema validation
-        auto validate = [](const nlohmann::json& j) -> std::vector<std::string> {
-            std::vector<std::string> errs;
-            auto expect_string = [&](const char* key) {
-                if (j.contains(key) && !j.at(key).is_string()) {
-                    errs.push_back(fmt::format("'{}' deve ser string", key));
-                }
-            };
-            expect_string("algo");
-            expect_string("url");
-            expect_string("user");
-            expect_string("pass");
-            if (j.contains("algo") && j.at("algo").is_string()) {
-                std::string a = j.at("algo").get<std::string>();
-                if (a != "qhash") errs.push_back("algo deve ser 'qhash'");
-            }
-            if (j.contains("url") && j.at("url").is_string()) {
-                std::string u = j.at("url").get<std::string>();
-                std::string err;
-                if (!validate_host_port(u, err)) errs.push_back(err);
-            }
-            return errs;
-        };
-
-        try {
-            nlohmann::json j = nlohmann::json::parse(text);
-            auto errs = validate(j);
-            if (!errs.empty()) {
-                fmt::print(stderr, "miner.conf inválido:\n");
-                for (const auto& e : errs) fmt::print(stderr, "  - {}\n", e);
-                // ignore invalid config but continue (CLI/env may provide values)
-                return;
-            }
-            if (j.contains("algo")) cfg.algo = j.at("algo").get<std::string>();
-            if (j.contains("url"))  cfg.url  = j.at("url").get<std::string>();
-            if (j.contains("user")) cfg.user = j.at("user").get<std::string>();
-            if (j.contains("pass")) cfg.pass = j.at("pass").get<std::string>();
-        } catch (const std::exception& ex) {
-            fmt::print(stderr, "Falha ao ler miner.conf: {}\n", ex.what());
-            return;
-        }
-    } else {
-        // key=value format
-        std::istringstream iss(text);
-        std::string line;
-        while (std::getline(iss, line)) {
-            if (line.empty() || line[0] == '#') continue;
-            auto eq = line.find('=');
-            if (eq == std::string::npos) continue;
-            std::string key = line.substr(0, eq);
-            std::string val = line.substr(eq + 1);
-            if (key == "algo") cfg.algo = val;
-            else if (key == "url") cfg.url = val;
-            else if (key == "user") cfg.user = val;
-            else if (key == "pass") cfg.pass = val;
-        }
-    }
-}
-
-static ParseResult parse_args(int argc, char** argv) {
-    cxxopts::Options options("ohmy-miner", "GPU miner for Qubitcoin (qhash)");
-    // clang-format off
-    options.add_options()
-        ("algo", "Mining algorithm (only 'qhash' supported)", cxxopts::value<std::string>()->default_value("qhash"))
-        ("url",  "Pool URL (host:port)", cxxopts::value<std::string>())
-        ("user", "Wallet[.RIG]", cxxopts::value<std::string>())
-        ("pass", "Pool password", cxxopts::value<std::string>()->default_value("x"))
-        ("config", "Path to config file (miner.conf)", cxxopts::value<std::string>()->default_value("miner.conf"))
-        ("v,version", "Show version and exit")
-        ("h,help",    "Show help and exit");
-    // clang-format on
-
-    ParseResult pr;
-    CmdArgs out;
-    try {
-        auto result = options.parse(argc, argv);
-        if (result.count("help")) {
-            fmt::print("{}\n", options.help());
-            pr.show_only = true;
-            return pr;
-        }
-        if (result.count("version")) {
-            fmt::print("ohmy-miner v{}\n", OHMY_MINER_VERSION);
-            pr.show_only = true;
-            return pr;
-        }
-        out.algo = result["algo"].as<std::string>();
-        out.url  = result.count("url") ? result["url"].as<std::string>() : std::string{};
-        out.user = result.count("user") ? result["user"].as<std::string>() : std::string{};
-        out.pass = result["pass"].as<std::string>();
-
-        // Apply config file then env (lowest to higher precedence before CLI overrides)
-        const auto cfg_path = result["config"].as<std::string>();
-        apply_config_file(out, cfg_path);
-        apply_env_overrides(out);
-
-        // Finally, CLI args (already applied) have highest precedence
-    } catch (const std::exception& e) {
-        fmt::print(stderr, "Argument error: {}\n\n{}\n", e.what(), options.help());
-        return pr; // .args empty, show_only=false -> failure
-    }
-
-    if (out.algo != "qhash" || out.url.empty() || out.user.empty()) {
-        fmt::print(stderr, "Missing or invalid required options.\n\n{}\n", options.help());
-        return pr; // invalid
-    }
-    // Validate URL for all sources (CLI/env/config)
-    {
-        std::string err;
-        if (!validate_host_port(out.url, err)) {
-            fmt::print(stderr, "Parâmetro --url inválido: {}\n\n{}\n", err, options.help());
-            return pr;
-        }
-    }
-    pr.args = out;
-    return pr;
-}
+#include <ohmy/cli/args.hpp>
+#include <ohmy/config/loader.hpp>
+#include <ohmy/system/cuda.hpp>
 
 int main(int argc, char** argv) {
-    auto parsed = parse_args(argc, argv);
-    if (parsed.show_only) {
-        return 0;
-    }
-    if (!parsed.args.has_value()) {
+    // 1) Parse CLI
+    auto pr = ohmy::cli::parse(argc, argv);
+    if (pr.show_only) return 0;
+    if (!pr.cfg.has_value()) return 1;
+
+    // 2) Merge config file then env, keeping CLI precedence
+    auto cfg = *pr.cfg;
+    auto file_errs = ohmy::config::load_from_file(cfg, pr.config_path);
+    for (const auto& e : file_errs) fmt::print(stderr, "config: {}\n", e);
+    ohmy::config::apply_env_overrides(cfg);
+
+    // 3) Final validation
+    auto verrs = ohmy::config::validate_final(cfg);
+    if (!verrs.empty()) {
+        for (const auto& e : verrs) fmt::print(stderr, "erro: {}\n", e);
         return 1;
     }
-    const auto& args = *parsed.args;
 
+    // 4) Startup banner
     fmt::print("ohmy-miner v{}\n", OHMY_MINER_VERSION);
-    fmt::print("  algo    : {}\n", args.algo);
-    fmt::print("  url     : {}\n", args.url);
-    fmt::print("  user    : {}\n", args.user);
-    fmt::print("  pass    : {}\n", args.pass);
+    fmt::print("  algo    : {}\n", cfg.algo);
+    fmt::print("  url     : {}\n", cfg.url);
+    fmt::print("  user    : {}\n", cfg.user);
+    fmt::print("  pass    : {}\n", cfg.pass);
 
-    // CUDA device info (best-effort)
-    int device_count = 0;
-    cudaError_t cerr = cudaGetDeviceCount(&device_count);
-    if (cerr == cudaSuccess && device_count > 0) {
-        fmt::print("CUDA devices: {}\n", device_count);
-        for (int d = 0; d < device_count; ++d) {
-            cudaDeviceProp prop{};
-            if (cudaGetDeviceProperties(&prop, d) == cudaSuccess) {
-                fmt::print("  [{}] {} (SM {}.{}, {} MB)\n", d, prop.name, prop.major, prop.minor, prop.totalGlobalMem / (1024 * 1024));
-            }
-        }
-    } else {
-        fmt::print("CUDA not available or no devices found.\n");
-    }
+    // 5) CUDA info (best-effort)
+    ohmy::system::print_cuda_info();
+
     fmt::print("(bootstrap mode: networking and CUDA kernels to be added)\n");
-
-    // TODO: initialize CUDA, connect to pool (Stratum), start mining workers
-
     return 0;
 }
+
