@@ -68,6 +68,7 @@ add_executable(ohmy-miner
   src/logging/fmt_logger.cpp
   src/pool/stratum.cpp
   src/pool/stratum_messages.cpp
+  src/pool/mining_job.cpp
 )
 
 # Enable CUDA for the target

@@ -1,5 +1,6 @@
 #include <ohmy/pool/stratum.hpp>
 #include <ohmy/pool/stratum_messages.hpp>
+#include <ohmy/pool/mining_job.hpp>
 
 #include <asio/io_context.hpp>
 #include <asio/ip/tcp.hpp>
@@ -343,8 +344,25 @@ bool StratumClient::listen_mode(int duration_sec) {
                                                                                                             try {
                                                                                                                 auto j3 = json::parse(line3);
                                                                                                                 if (j3.contains("method") && j3["method"] == "mining.notify") {
-                                                                                                                    std::string job_id = j3["params"][0].get<std::string>();
-                                                                                                                    log_.info(std::string("Stratum listen: NOTIFY job_id=") + job_id);
+                                                                                                                    if (j3.contains("params") && j3["params"].is_array()) {
+                                                                                                                        auto job_opt = parse_mining_notify(j3["params"].get<std::vector<json>>());
+                                                                                                                        if (job_opt) {
+                                                                                                                            const auto& job = *job_opt;
+                                                                                                                            log_.info(std::string("Stratum listen: NOTIFY job_id=") + job.job_id 
+                                                                                                                                      + ", version=" + job.version
+                                                                                                                                      + ", nbits=" + job.nbits
+                                                                                                                                      + ", ntime=" + job.ntime
+                                                                                                                                      + ", clean=" + (job.clean_jobs ? "true" : "false")
+                                                                                                                                      + ", merkle_branches=" + std::to_string(job.merkle_branch.size()));
+                                                                                                                            log_.debug(std::string("  prev_hash=") + job.prev_hash);
+                                                                                                                            log_.debug(std::string("  coinbase1_len=") + std::to_string(job.coinbase1.size()/2) + " bytes");
+                                                                                                                            log_.debug(std::string("  coinbase2_len=") + std::to_string(job.coinbase2.size()/2) + " bytes");
+                                                                                                                        } else {
+                                                                                                                            log_.error("Stratum listen: failed to parse mining.notify params");
+                                                                                                                        }
+                                                                                                                    } else {
+                                                                                                                        log_.error("Stratum listen: mining.notify missing params array");
+                                                                                                                    }
                                                                                                                 } else {
                                                                                                                     log_.info(std::string("Stratum listen: <- ") + line3);
                                                                                                                 }

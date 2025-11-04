@@ -73,7 +73,7 @@ int main(int argc, char** argv) {
         sopts.user = cfg.user;
         sopts.pass = cfg.pass;
         ohmy::pool::StratumClient client(logger, std::move(sopts));
-        bool ok = client.listen_mode(10); // Listen for 10 seconds
+        bool ok = client.listen_mode(30); // Listen for 30 seconds
         return ok ? 0 : 2;
     }
 
