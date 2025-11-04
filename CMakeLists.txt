@@ -113,4 +113,7 @@ if (BUILD_TESTING)
   # Verify --debug enables DEBUG lines in stdout and exits 0
   add_test(NAME ohmy_debug COMMAND ohmy-miner --debug --config ${CMAKE_SOURCE_DIR}/tests/config/miner-valid.json)
   set_tests_properties(ohmy_debug PROPERTIES PASS_REGULAR_EXPRESSION "DEBUG")
+  # Verify without --debug no DEBUG lines are printed
+  add_test(NAME ohmy_no_debug COMMAND ohmy-miner --config ${CMAKE_SOURCE_DIR}/tests/config/miner-valid.json)
+  set_tests_properties(ohmy_no_debug PROPERTIES FAIL_REGULAR_EXPRESSION "DEBUG")
 endif()
